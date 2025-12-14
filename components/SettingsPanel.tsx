@@ -283,6 +283,10 @@ export function SettingsPanel({
                       <p className="text-xs text-muted-foreground">
                         Fetches duration from Invidious API
                       </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        ⚠️ Warning: Enabling this will greatly increase refresh
+                        times
+                      </p>
                     </div>
                     <Switch
                       checked={local.enableVideoDuration}
@@ -306,7 +310,7 @@ export function SettingsPanel({
                             invidousInstance: e.target.value,
                           })
                         }
-                        placeholder="https://inv.perditum.com/"
+                        placeholder="https://example.com/"
                         className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                       />
                       <p className="text-xs text-muted-foreground">

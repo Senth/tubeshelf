@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useContext, useRef } from "react";
 import { ThemeContext } from "@/components/ThemeProvider";
-import { Play, Menu, Search, Settings, Bookmark, List, X } from "lucide-react";
+import {
+  Play,
+  Menu,
+  Search,
+  Settings,
+  Bookmark,
+  List,
+  X,
+  RefreshCw,
+} from "lucide-react";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
@@ -69,7 +78,9 @@ export default function Home() {
   const [currentListId, setCurrentListId] = useState<string>("default");
   const [filterListId, setFilterListId] = useState<string>("all");
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
+  const initialLoadRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -82,6 +93,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setShowLoadingProgress(true);
+    setIsRefreshing(true);
     try {
       // Fetch lists first and independently
       const listsRes = await fetch("/api/subscription-lists");
@@ -112,6 +124,7 @@ export default function Home() {
     } finally {
       setLoading(false);
       setShowLoadingProgress(false);
+      setIsRefreshing(false);
       refreshingRef.current = false;
     }
   };
@@ -375,16 +388,22 @@ export default function Home() {
 
   const handleSaveSettings = async (updates: Partial<typeof settings>) => {
     try {
+      const durationSettingChanged =
+        updates.enableVideoDuration !== undefined &&
+        updates.enableVideoDuration !== settings?.enableVideoDuration;
+
       await updateSettings(updates);
       const freshSettings = await getSettings();
       setSettings(freshSettings);
 
-      // If content filter settings changed (shorts or livestreams), refresh feed data
+      // If content filter settings or duration settings changed, refresh feed data
       const contentFilterChanged =
         updates.enableShorts !== undefined ||
         updates.enableLivestreams !== undefined;
 
-      if (contentFilterChanged) {
+      if (contentFilterChanged || durationSettingChanged) {
+        // Close settings panel before refresh to show loading bar
+        setShowSettings(false);
         await refreshData(true); // Force refresh to bypass cache
       }
     } catch (err) {
@@ -620,7 +639,21 @@ export default function Home() {
           <>
             {/* Page Header */}
             <div className="mb-8">
-              <h2 className="text-2xl sm:text-3xl font-bold mb-2">Your Feed</h2>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-2xl sm:text-3xl font-bold">Your Feed</h2>
+                <Button
+                  onClick={() => refreshData(true)}
+                  variant="ghost"
+                  size="sm"
+                  disabled={isRefreshing}
+                  title="Refresh feed"
+                  className="h-auto px-2"
+                >
+                  <RefreshCw
+                    className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
+                  />
+                </Button>
+              </div>
               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
                 <span>
                   {(() => {

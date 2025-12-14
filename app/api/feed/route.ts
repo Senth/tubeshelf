@@ -30,6 +30,7 @@ export async function GET(req: Request) {
     enableVideos: true,
     enableShorts: true,
     enableLivestreams: true,
+    enableVideoDuration: false,
   };
   try {
     const settingsData = await readSettings();
@@ -37,6 +38,7 @@ export async function GET(req: Request) {
       enableVideos: settingsData.enableVideos,
       enableShorts: settingsData.enableShorts,
       enableLivestreams: settingsData.enableLivestreams,
+      enableVideoDuration: settingsData.enableVideoDuration,
     };
   } catch {
     // Use defaults
@@ -184,9 +186,6 @@ export async function GET(req: Request) {
   // Log durations for debugging
   const videosWithDuration = items.filter((item) => item.duration);
   const videosWithoutDuration = items.filter((item) => !item.duration);
-  console.log(
-    `[Feed] Response: ${videosWithDuration.length} videos WITH duration, ${videosWithoutDuration.length} WITHOUT`
-  );
 
   // Return feed immediately without waiting for avatar enrichment
   const result = { items };
@@ -241,11 +240,6 @@ async function fetchAvatarsAndUpdateAsync(channelIds: string[]) {
         });
       });
       if (updated) {
-        console.log(
-          `[Feed] Updated ${
-            updated ? "subscriptions" : "no subscriptions"
-          } with avatars`
-        );
         await writeLists(listsData);
       }
     } catch (err) {

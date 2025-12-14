@@ -197,11 +197,6 @@ async function fetchDurationsFromInvidious(
 
     // Cache the result
     durationCache.set(channelId, { durations, timestamp: Date.now() });
-    console.debug(
-      `[RSS] Successfully fetched durations from ${instanceUrl} for channel ${channelId} (${
-        Object.keys(durations).length
-      } videos)`
-    );
 
     return durations;
   } catch (err) {
@@ -320,11 +315,12 @@ async function fetchChannelFeedByType(
             video.duration = durations[video.id];
           }
         }
-        
-        const withDuration = videos.filter(v => v.duration).length;
-        const withoutDuration = videos.length - withDuration;
-        if (withoutDuration > 0) {
-          console.warn(`[RSS] Channel ${channelId}: ${withDuration}/${videos.length} videos got duration, ${withoutDuration} missing`);
+
+        const withDuration = videos.filter((v) => v.duration).length;
+        if (withDuration === 0) {
+          console.warn(
+            `[RSS] No durations retrieved from ${invidousUrl} for channel ${channelId}`
+          );
         }
       }
     }
