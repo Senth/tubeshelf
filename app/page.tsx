@@ -140,17 +140,118 @@ export default function Home() {
         return prevId && listStillExists ? prevId : "default";
       });
 
-      // Then fetch videos independently; don't fail if videos error
+      // Then fetch videos with streaming
       try {
-        const vids = await getVideos(forceRefresh);
-        setVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
-        setShorts(vids.filter((v) => v.isShort));
-        setFilteredLivestreams(vids.filter((v) => v.isLivestream));
-        setFilteredVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
-        setFilteredShorts(vids.filter((v) => v.isShort));
+        const response = await fetch(`/api/feed/stream?refresh=${forceRefresh}`);
+        
+        console.log("[Stream] Starting stream...");
+        if (!response.ok) throw new Error("Failed to fetch videos stream");
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = "";
+          const videoIds = new Set<string>();
+          let videoCount = 0;
+          let hasReceivedFirstVideo = false;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const rawVideo = JSON.parse(line.slice(6));
+                  const videoId = rawVideo.id || rawVideo.videoId;
+                  
+                  // Transform raw API response to Video interface
+                  const video = {
+                    id: videoId,
+                    title: rawVideo.title || "",
+                    channel: rawVideo.channelTitle || "Unknown",
+                    channelId: rawVideo.channelId || "",
+                    thumbnail:
+                      rawVideo.thumbnail ||
+                      (videoId
+                        ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+                        : "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400&h=225&fit=crop"),
+                    duration: rawVideo.duration || "—",
+                    uploadedAt: rawVideo.publishedAt || new Date().toISOString(),
+                    views: rawVideo.viewCount || rawVideo.views,
+                    isShort: rawVideo.isShort || false,
+                    isLivestream: rawVideo.isLivestream || false,
+                    url: rawVideo.url || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : ""),
+                  };
+
+                  if (!videoIds.has(videoId)) {
+                    videoIds.add(videoId);
+                    videoCount++;
+
+                    // Hide loading overlay once first video arrives
+                    if (!hasReceivedFirstVideo) {
+                      setLoading(false);
+                      hasReceivedFirstVideo = true;
+                    }
+
+                    // Update state immediately as videos arrive
+                    if (!video.isShort && !video.isLivestream) {
+                      setVideos((prev) => {
+                        const updated = [...prev, video];
+                        return updated;
+                      });
+                      setFilteredVideos((prev) => {
+                        const updated = [...prev, video];
+                        return updated;
+                      });
+                    } else if (video.isShort) {
+                      setShorts((prev) => {
+                        const updated = [...prev, video];
+                        return updated;
+                      });
+                      setFilteredShorts((prev) => {
+                        const updated = [...prev, video];
+                        return updated;
+                      });
+                    } else if (video.isLivestream) {
+                      console.log("[Stream] Adding livestream:", videoId);
+                      setFilteredLivestreams((prev) => {
+                        const updated = [...prev, video];
+                        console.log("[Stream] FilteredLivestreams state now has", updated.length, "items");
+                        return updated;
+                      });
+                    }
+                  }
+                } catch (e) {
+                  console.error("[Stream] Failed to parse line:", e, "line:", line);
+                  // Continue if line is not valid JSON
+                }
+              }
+            }
+          }
+        }
       } catch (vidErr) {
         console.error("Failed to fetch videos:", vidErr);
-        // Continue with empty videos instead of failing the entire refresh
+        // Fall back to regular feed endpoint
+        console.log("[Stream] Falling back to regular /api/feed endpoint");
+        try {
+          const vids = await getVideos(forceRefresh);
+          console.log("[Fallback] Received", vids.length, "videos");
+          setVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
+          setShorts(vids.filter((v) => v.isShort));
+          setFilteredLivestreams(vids.filter((v) => v.isLivestream));
+          setFilteredVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
+          setFilteredShorts(vids.filter((v) => v.isShort));
+        } catch (fallbackErr) {
+          console.error("Fallback fetch also failed:", fallbackErr);
+        }
       }
     } catch (err: any) {
       console.error("Failed to load lists:", err);
@@ -360,11 +461,20 @@ export default function Home() {
       shts = shts.filter((v) => !watchedVideos.has(v.id));
     }
 
-    // Sort by defaultSortOrder
-    if (settings?.defaultSortOrder === "oldest") {
-      vids = [...vids].reverse();
-      shts = [...shts].reverse();
-    }
+    // Sort by date (newest first by default, oldest first if setting is "oldest")
+    const sortByDate = (videos: any[]) => {
+      return [...videos].sort((a, b) => {
+        const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+        const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+        // Newest first by default
+        const comparison = dateB - dateA;
+        // Reverse if oldest first is selected
+        return settings?.defaultSortOrder === "oldest" ? -comparison : comparison;
+      });
+    };
+
+    vids = sortByDate(vids);
+    shts = sortByDate(shts);
 
     setFilteredVideos(vids);
     setFilteredShorts(shts);
@@ -721,7 +831,8 @@ export default function Home() {
                 )}
                 {showLoadingProgress && progress && (
                   <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
-                    Loading: {progress.currentChannelTitle || "..."} ({progress.completed}/{progress.total})
+                    Loading: {progress.currentChannelTitle || "..."} (
+                    {progress.completed}/{progress.total})
                   </span>
                 )}
               </div>
