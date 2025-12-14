@@ -332,7 +332,13 @@ async function fetchChannelFeedByType(
     );
   }
 
-  const channelTitle = feed?.title || "";
+  const channelTitle =
+    entries[0]?.author?.name ||
+    entries[0]?.["author"]?.["name"] ||
+    videos[0]?.channelTitle ||
+    (feed?.title && feed.title !== "Videos" ? feed.title : undefined) ||
+    channelId ||
+    "";
   // Prefer thumbnails already present in the feed; only fetch avatar if missing to avoid extra latency.
   const channelThumbnailFromFeed =
     entries[0]?.["media:group"]?.["media:thumbnail"]?.url ||
@@ -347,6 +353,18 @@ async function fetchChannelFeedByType(
     thumbnail: channelThumbnail,
     avatar: undefined, // Avatar fetched separately in background
   };
+
+  // Debug: log empty channel titles
+  if (!channelTitle) {
+    console.warn("[RSS] Empty channel title from feed or entries", {
+      channelId,
+      feedTitle: feed?.title,
+      firstEntryAuthor:
+        entries[0]?.author?.name || entries[0]?.["author"]?.["name"],
+      firstVideoChannelTitle: videos[0]?.channelTitle,
+      feedKeys: feed ? Object.keys(feed) : [],
+    });
+  }
 
   return { videos, meta };
 }

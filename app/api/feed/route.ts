@@ -127,9 +127,12 @@ export async function GET(req: Request) {
         // Fetch shorts if enabled
         if (feedSettings.enableShorts) {
           try {
-            const { videos: shortVideos } = await fetchChannelFeedShorts(
-              current
-            );
+            const { videos: shortVideos, meta: shortMeta } =
+              await fetchChannelFeedShorts(current);
+            // Update meta if we haven't set it yet
+            if (!meta && shortMeta) {
+              meta = shortMeta;
+            }
             shortVideos.forEach((video) => {
               items.push({
                 ...video,
@@ -147,9 +150,12 @@ export async function GET(req: Request) {
         // Fetch livestreams if enabled
         if (feedSettings.enableLivestreams) {
           try {
-            const { videos: livestreams } = await fetchChannelFeedLivestreams(
-              current
-            );
+            const { videos: livestreams, meta: livestreamMeta } =
+              await fetchChannelFeedLivestreams(current);
+            // Update meta if we haven't set it yet
+            if (!meta && livestreamMeta) {
+              meta = livestreamMeta;
+            }
             livestreams.forEach((video) => {
               items.push({
                 ...video,
@@ -164,7 +170,8 @@ export async function GET(req: Request) {
           }
         }
         // Update progress with channel info
-        updateProgress(current, meta.title, sessionId);
+        const channelTitle = meta?.title || current;
+        updateProgress(current, channelTitle, sessionId);
       } catch (err) {
         console.error("[Feed] Failed to load feed for channel", {
           channelId: current,

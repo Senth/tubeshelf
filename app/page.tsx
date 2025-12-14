@@ -4,7 +4,6 @@ import { useState, useEffect, useContext, useRef } from "react";
 import { ThemeContext } from "@/components/ThemeProvider";
 import {
   Play,
-  Menu,
   Search,
   Settings,
   Bookmark,
@@ -63,7 +62,6 @@ export default function Home() {
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
   const [filteredShorts, setFilteredShorts] = useState<Video[]>([]);
@@ -79,6 +77,11 @@ export default function Home() {
   const [filterListId, setFilterListId] = useState<string>("all");
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [progress, setProgress] = useState<{
+    completed: number;
+    total: number;
+    currentChannelTitle?: string;
+  } | null>(null);
   const refreshingRef = useRef(false);
   const initialLoadRef = useRef(false);
 
@@ -86,11 +89,42 @@ export default function Home() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (!showLoadingProgress) {
+      setProgress(null);
+      return;
+    }
+
+    const eventSource = new EventSource("/api/feed/progress");
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setProgress(data);
+      } catch (e) {
+        console.error("Failed to parse progress:", e);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [showLoadingProgress]);
+
   const refreshData = async (forceRefresh = false) => {
     // Prevent concurrent or duplicate refreshes (e.g., React Strict Mode)
     if (refreshingRef.current) return;
     refreshingRef.current = true;
-    setLoading(true);
+
+    // Only show full loading state on initial load (when there are no videos yet)
+    const isInitialLoad = videos.length === 0;
+    if (isInitialLoad) {
+      setLoading(true);
+    }
+
     setError(null);
     setShowLoadingProgress(true);
     setIsRefreshing(true);
@@ -122,7 +156,10 @@ export default function Home() {
       console.error("Failed to load lists:", err);
       setError(err?.message || "Failed to load data");
     } finally {
-      setLoading(false);
+      const isInitialLoad = videos.length === 0;
+      if (isInitialLoad) {
+        setLoading(false);
+      }
       setShowLoadingProgress(false);
       setIsRefreshing(false);
       refreshingRef.current = false;
@@ -505,23 +542,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      {/* Loading Progress Modal */}
-      <LoadingProgress isVisible={showLoadingProgress} />
-
       {/* Navigation */}
       <nav className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <Button
-                onClick={() => setShowMobileMenu(!showMobileMenu)}
-                variant="ghost"
-                size="icon"
-                className="lg:hidden"
-              >
-                <Menu className="w-5 h-5" />
-              </Button>
               <div
                 className="flex items-center gap-2 cursor-pointer"
                 onClick={() => {
@@ -639,7 +665,7 @@ export default function Home() {
           <>
             {/* Page Header */}
             <div className="mb-8">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-4 mb-4">
                 <h2 className="text-2xl sm:text-3xl font-bold">Your Feed</h2>
                 <Button
                   onClick={() => refreshData(true)}
@@ -647,12 +673,13 @@ export default function Home() {
                   size="sm"
                   disabled={isRefreshing}
                   title="Refresh feed"
-                  className="h-auto px-2"
+                  className="h-auto px-2 mt-1"
                 >
                   <RefreshCw
                     className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
                   />
                 </Button>
+                <LoadingProgress isVisible={showLoadingProgress} />
               </div>
               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
                 <span>
@@ -691,6 +718,11 @@ export default function Home() {
                     <span>•</span>
                     <span>{filteredLivestreams.length} livestreams</span>
                   </>
+                )}
+                {showLoadingProgress && progress && (
+                  <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
+                    Loading: {progress.currentChannelTitle || "..."} ({progress.completed}/{progress.total})
+                  </span>
                 )}
               </div>
               {error && (
