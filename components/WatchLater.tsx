@@ -93,7 +93,7 @@ export function WatchLater({
             <div className="flex gap-1 flex-shrink-0 items-center">
               <button
                 onClick={() => onToggleWatched?.(item.videoId)}
-                className="p-2 hover:bg-secondary rounded transition-colors"
+                className="p-2 bg-secondary/50 hover:bg-secondary rounded transition-colors"
                 title={isWatched ? "Mark as unwatched" : "Mark as watched"}
               >
                 <Eye
@@ -108,7 +108,7 @@ export function WatchLater({
                   setCopiedVideoId(item.videoId);
                   setTimeout(() => setCopiedVideoId(null), 2000);
                 }}
-                className="p-2 hover:bg-secondary rounded transition-colors"
+                className="p-2 bg-secondary/50 hover:bg-secondary rounded transition-colors"
                 title="Share"
               >
                 {copiedVideoId === item.videoId ? (
@@ -119,7 +119,7 @@ export function WatchLater({
               </button>
               <button
                 onClick={() => onRemove?.(item.id)}
-                className="p-2 hover:bg-destructive/10 rounded transition-colors"
+                className="p-2 bg-destructive/5 hover:bg-destructive/10 rounded transition-colors"
                 title="Remove"
               >
                 <Trash2 className="w-4 h-4 text-destructive" />
