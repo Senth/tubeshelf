@@ -787,6 +787,9 @@ export default function Home() {
                             views={video.views}
                             watched={watchedVideos.has(video.id)}
                             videoUrl={video.url}
+                            showDurationPlaceholder={
+                              settings?.enableVideoDuration
+                            }
                             onWatch={() => handleWatchVideo(video.id)}
                             onWatchLater={() => handleAddToWatchLater(video)}
                             onMarkWatched={() => handleToggleWatched(video.id)}
@@ -837,6 +840,9 @@ export default function Home() {
                             views={video.views}
                             watched={watchedVideos.has(video.id)}
                             videoUrl={video.url}
+                            showDurationPlaceholder={
+                              settings?.enableVideoDuration
+                            }
                             onWatch={() => handleWatchVideo(video.id)}
                             onWatchLater={() => handleAddToWatchLater(video)}
                             onMarkWatched={() => handleToggleWatched(video.id)}
@@ -887,6 +893,9 @@ export default function Home() {
                             views={video.views}
                             watched={watchedVideos.has(video.id)}
                             videoUrl={video.url}
+                            showDurationPlaceholder={
+                              settings?.enableVideoDuration
+                            }
                             onWatch={() => handleWatchVideo(video.id)}
                             onWatchLater={() => handleAddToWatchLater(video)}
                             onMarkWatched={() => handleToggleWatched(video.id)}

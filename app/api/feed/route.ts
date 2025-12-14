@@ -181,6 +181,13 @@ export async function GET(req: Request) {
       new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
   );
 
+  // Log durations for debugging
+  const videosWithDuration = items.filter((item) => item.duration);
+  const videosWithoutDuration = items.filter((item) => !item.duration);
+  console.log(
+    `[Feed] Response: ${videosWithDuration.length} videos WITH duration, ${videosWithoutDuration.length} WITHOUT`
+  );
+
   // Return feed immediately without waiting for avatar enrichment
   const result = { items };
   cachedResult = result;

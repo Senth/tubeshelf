@@ -269,6 +269,63 @@ export function SettingsPanel({
                 </div>
               </div>
 
+              {/* Video Duration Settings */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium">
+                  Video Duration
+                </label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+                    <div>
+                      <label className="text-sm font-medium cursor-pointer block">
+                        Show Video Duration
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Fetches duration from Invidious API
+                      </p>
+                    </div>
+                    <Switch
+                      checked={local.enableVideoDuration}
+                      onCheckedChange={(checked) =>
+                        setLocal({ ...local, enableVideoDuration: checked })
+                      }
+                    />
+                  </div>
+
+                  {local.enableVideoDuration && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Invidious Instance URL
+                      </label>
+                      <input
+                        type="text"
+                        value={local.invidousInstance || ""}
+                        onChange={(e) =>
+                          setLocal({
+                            ...local,
+                            invidousInstance: e.target.value,
+                          })
+                        }
+                        placeholder="https://inv.perditum.com/"
+                        className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Enter an Invidious instance URL with API support.{" "}
+                        <a
+                          href="https://api.invidious.io/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          Check available instances
+                        </a>{" "}
+                        (look for api: ✔)
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               {/* Info Section */}

@@ -7,6 +7,8 @@ export interface AppSettings {
   enableVideos: boolean;
   enableShorts: boolean;
   enableLivestreams: boolean;
+  enableVideoDuration: boolean;
+  invidousInstance: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -15,6 +17,8 @@ export const defaultSettings: AppSettings = {
   enableVideos: true,
   enableShorts: true,
   enableLivestreams: true,
+  enableVideoDuration: false,
+  invidousInstance: "",
 };
 
 const dataDir = "data";

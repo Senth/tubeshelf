@@ -30,6 +30,7 @@ interface VideoCardProps {
   views?: number;
   watched?: boolean;
   videoUrl?: string;
+  showDurationPlaceholder?: boolean;
   // Render inline action buttons under the card (used in Watch Later section)
   inlineActions?: boolean;
   onWatch?: () => void;
@@ -48,6 +49,7 @@ export function VideoCard({
   views,
   watched,
   videoUrl,
+  showDurationPlaceholder,
   inlineActions,
   onWatch,
   onWatchLater,
@@ -182,15 +184,17 @@ export function VideoCard({
 
         {/* Duration badge - top right */}
         {(() => {
-          const d = (duration ?? "").trim();
-          const isOnlyDash = /^[-–—]+$/.test(d); // '-', '–', '—'
-          const hasDigits = /\d/.test(d);
-          const show = d.length > 0 && !isOnlyDash && hasDigits;
-          return show ? (
+          // Show badge if duration display is enabled
+          if (!showDurationPlaceholder) {
+            return null;
+          }
+
+          // Show actual duration if available, otherwise show placeholder "-"
+          return (
             <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-              {duration}
+              {duration || "-"}
             </div>
-          ) : null;
+          );
         })()}
 
         {watched && (

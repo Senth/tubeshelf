@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import { readSettings } from "./settingsStore";
 
 export interface FeedVideo {
   id: string;
@@ -108,6 +109,110 @@ async function fetchChannelAvatar(
   }
 }
 
+// Cache for durations to avoid repeated fetches
+const durationCache = new Map<
+  string,
+  { durations: Record<string, string>; timestamp: number }
+>();
+const DURATION_CACHE_TTL = 1000 * 60 * 60; // 1 hour
+
+async function fetchDurationsFromInvidious(
+  channelId: string,
+  instanceUrl: string
+): Promise<Record<string, string>> {
+  const durations: Record<string, string> = {};
+
+  // Check cache first
+  const cached = durationCache.get(channelId);
+  if (cached && Date.now() - cached.timestamp < DURATION_CACHE_TTL) {
+    return cached.durations;
+  }
+
+  try {
+    // Normalize instance URL - add https:// if missing
+    let normalizedUrl = instanceUrl.trim();
+    if (
+      !normalizedUrl.startsWith("http://") &&
+      !normalizedUrl.startsWith("https://")
+    ) {
+      normalizedUrl = "https://" + normalizedUrl;
+    }
+    // Ensure URL ends with /
+    if (!normalizedUrl.endsWith("/")) {
+      normalizedUrl += "/";
+    }
+
+    const url = `${normalizedUrl}api/v1/channels/${channelId}?fields=latestVideos`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+    const res = await fetch(url, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      console.warn(
+        `[RSS] Invidious API error for ${instanceUrl}: HTTP ${res.status}`
+      );
+      return durations;
+    }
+
+    // Check if response is actually JSON before parsing
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      console.warn(
+        `[RSS] Invidious API error for ${instanceUrl}: Expected JSON, got ${
+          contentType || "unknown content-type"
+        }`
+      );
+      return durations;
+    }
+
+    const data: any = await res.json();
+
+    if (data.latestVideos && Array.isArray(data.latestVideos)) {
+      for (const video of data.latestVideos) {
+        if (video.videoId && typeof video.lengthSeconds === "number") {
+          // Format duration as HH:MM:SS or MM:SS
+          const seconds = video.lengthSeconds;
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          const secs = seconds % 60;
+
+          let durationStr = "";
+          if (hours > 0) {
+            durationStr = `${hours}:${minutes
+              .toString()
+              .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+          } else {
+            durationStr = `${minutes}:${secs.toString().padStart(2, "0")}`;
+          }
+
+          durations[video.videoId] = durationStr;
+        }
+      }
+    }
+
+    // Cache the result
+    durationCache.set(channelId, { durations, timestamp: Date.now() });
+    console.debug(
+      `[RSS] Successfully fetched durations from ${instanceUrl} for channel ${channelId} (${
+        Object.keys(durations).length
+      } videos)`
+    );
+
+    return durations;
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[RSS] Failed to fetch durations from ${instanceUrl}: ${errorMsg}`
+    );
+    return durations;
+  }
+}
+
 export async function fetchChannelFeed(channelId: string) {
   // Always fetch regular videos using UULF (videos only, no shorts, no livestreams)
   return fetchChannelFeedByType(channelId, "videos");
@@ -180,6 +285,56 @@ async function fetchChannelFeedByType(
       return video;
     })
     .filter(Boolean) as FeedVideo[];
+
+  // Fetch durations from Invidious if enabled
+  // Uses a timeout to prevent blocking the response too long
+  try {
+    const settings = await readSettings();
+
+    // Only fetch durations if explicitly enabled by user
+    if (settings.enableVideoDuration) {
+      const invidousUrl = settings.invidousInstance?.trim();
+
+      // Check if instance URL is configured
+      if (!invidousUrl) {
+        console.warn(
+          `[RSS] Video duration enabled but no Invidious instance URL configured`
+        );
+      } else {
+        // Create a promise that fetches durations with a max wait time
+        const durationPromise = fetchDurationsFromInvidious(
+          channelId,
+          invidousUrl
+        );
+
+        // Wait up to 15 seconds for durations to fetch
+        const timeoutPromise = new Promise<Record<string, string>>((resolve) =>
+          setTimeout(() => resolve({}), 15000)
+        );
+
+        const durations = await Promise.race([durationPromise, timeoutPromise]);
+
+        // Update videos with durations
+        for (const video of videos) {
+          if (durations[video.id]) {
+            video.duration = durations[video.id];
+          }
+        }
+        
+        const withDuration = videos.filter(v => v.duration).length;
+        const withoutDuration = videos.length - withDuration;
+        if (withoutDuration > 0) {
+          console.warn(`[RSS] Channel ${channelId}: ${withDuration}/${videos.length} videos got duration, ${withoutDuration} missing`);
+        }
+      }
+    }
+  } catch (err) {
+    // Silently fail - durations are optional
+    console.debug(
+      `[RSS] Error fetching durations:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   const channelTitle = feed?.title || "";
   // Prefer thumbnails already present in the feed; only fetch avatar if missing to avoid extra latency.
