@@ -32,7 +32,7 @@ import type {
 } from "@/lib/subscriptionListStore";
 
 type Page = "home" | "watch-later";
-type FeedTab = "videos" | "reels";
+type FeedTab = "videos" | "shorts" | "livestreams";
 
 interface WatchLaterItem {
   id: string;
@@ -58,6 +58,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
   const [filteredShorts, setFilteredShorts] = useState<Video[]>([]);
+  const [filteredLivestreams, setFilteredLivestreams] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hideWatched, setHideWatched] = useState(false);
@@ -96,9 +97,10 @@ export default function Home() {
       // Then fetch videos independently; don't fail if videos error
       try {
         const vids = await getVideos(forceRefresh);
-        setVideos(vids.filter((v) => !v.isShort));
+        setVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
         setShorts(vids.filter((v) => v.isShort));
-        setFilteredVideos(vids.filter((v) => !v.isShort));
+        setFilteredLivestreams(vids.filter((v) => v.isLivestream));
+        setFilteredVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
         setFilteredShorts(vids.filter((v) => v.isShort));
       } catch (vidErr) {
         console.error("Failed to fetch videos:", vidErr);
@@ -214,6 +216,32 @@ export default function Home() {
       } catch {}
     }
   }, []);
+
+  // Auto-redirect to first available tab if current tab is disabled
+  useEffect(() => {
+    if (!settings) return;
+
+    const isCurrentTabDisabled =
+      (feedTab === "videos" && !settings.enableVideos) ||
+      (feedTab === "shorts" && !settings.enableShorts) ||
+      (feedTab === "livestreams" && !settings.enableLivestreams);
+
+    if (isCurrentTabDisabled) {
+      // Find first enabled tab
+      if (settings.enableVideos) {
+        setFeedTab("videos");
+      } else if (settings.enableShorts) {
+        setFeedTab("shorts");
+      } else if (settings.enableLivestreams) {
+        setFeedTab("livestreams");
+      }
+    }
+  }, [
+    settings?.enableVideos,
+    settings?.enableShorts,
+    settings?.enableLivestreams,
+    feedTab,
+  ]);
 
   // Save user state when it changes
   useEffect(() => {
@@ -350,6 +378,15 @@ export default function Home() {
       await updateSettings(updates);
       const freshSettings = await getSettings();
       setSettings(freshSettings);
+
+      // If content filter settings changed (shorts or livestreams), refresh feed data
+      const contentFilterChanged =
+        updates.enableShorts !== undefined ||
+        updates.enableLivestreams !== undefined;
+
+      if (contentFilterChanged) {
+        await refreshData(true); // Force refresh to bypass cache
+      }
     } catch (err) {
       console.error("Failed to save settings:", err);
     }
@@ -604,10 +641,24 @@ export default function Home() {
                   })()}{" "}
                   subscriptions
                 </span>
-                <span>•</span>
-                <span>{filteredVideos.length} videos</span>
-                <span>•</span>
-                <span>{filteredShorts.length} reels</span>
+                {settings?.enableVideos && (
+                  <>
+                    <span>•</span>
+                    <span>{filteredVideos.length} videos</span>
+                  </>
+                )}
+                {settings?.enableShorts && (
+                  <>
+                    <span>•</span>
+                    <span>{filteredShorts.length} shorts</span>
+                  </>
+                )}
+                {settings?.enableLivestreams && (
+                  <>
+                    <span>•</span>
+                    <span>{filteredLivestreams.length} livestreams</span>
+                  </>
+                )}
               </div>
               {error && (
                 <p className="text-sm text-destructive mt-2">{error}</p>
@@ -635,26 +686,42 @@ export default function Home() {
                 {/* Tabs and Controls */}
                 <div className="flex items-center justify-between mb-6 border-b border-border">
                   <div className="flex gap-4">
-                    <button
-                      onClick={() => setFeedTab("videos")}
-                      className={`px-4 py-2 font-medium transition-colors ${
-                        feedTab === "videos"
-                          ? "border-b-2 border-primary text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Videos
-                    </button>
-                    <button
-                      onClick={() => setFeedTab("reels")}
-                      className={`px-4 py-2 font-medium transition-colors ${
-                        feedTab === "reels"
-                          ? "border-b-2 border-primary text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Reels
-                    </button>
+                    {settings?.enableVideos && (
+                      <button
+                        onClick={() => setFeedTab("videos")}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          feedTab === "videos"
+                            ? "border-b-2 border-primary text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Videos
+                      </button>
+                    )}
+                    {settings?.enableShorts && (
+                      <button
+                        onClick={() => setFeedTab("shorts")}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          feedTab === "shorts"
+                            ? "border-b-2 border-primary text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Shorts
+                      </button>
+                    )}
+                    {settings?.enableLivestreams && (
+                      <button
+                        onClick={() => setFeedTab("livestreams")}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          feedTab === "livestreams"
+                            ? "border-b-2 border-primary text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Livestreams
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 pb-2">
                     {/* Hide watched first */}
@@ -735,8 +802,8 @@ export default function Home() {
                   </>
                 )}
 
-                {/* Reels Tab */}
-                {feedTab === "reels" && (
+                {/* Shorts Tab */}
+                {feedTab === "shorts" && (
                   <>
                     {loading ? (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -748,7 +815,7 @@ export default function Home() {
                       <div className="text-center py-12">
                         <Play className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
                         <h3 className="text-lg font-semibold mb-2">
-                          No reels found
+                          No shorts found
                         </h3>
                         <p className="text-muted-foreground">
                           {searchQuery
@@ -759,6 +826,56 @@ export default function Home() {
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                         {filteredShorts.map((video) => (
+                          <VideoCard
+                            key={video.id}
+                            id={video.id}
+                            title={video.title}
+                            channel={video.channel}
+                            thumbnail={video.thumbnail}
+                            duration={video.duration}
+                            uploadedAt={video.uploadedAt}
+                            views={video.views}
+                            watched={watchedVideos.has(video.id)}
+                            videoUrl={video.url}
+                            onWatch={() => handleWatchVideo(video.id)}
+                            onWatchLater={() => handleAddToWatchLater(video)}
+                            onMarkWatched={() => handleToggleWatched(video.id)}
+                            onChannelClick={(channelName) =>
+                              setSearchQuery(
+                                searchQuery === channelName ? "" : channelName
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Livestreams Tab */}
+                {feedTab === "livestreams" && (
+                  <>
+                    {loading ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <VideoCardSkeleton key={i} />
+                        ))}
+                      </div>
+                    ) : filteredLivestreams.length === 0 ? (
+                      <div className="text-center py-12">
+                        <Play className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                        <h3 className="text-lg font-semibold mb-2">
+                          No livestreams found
+                        </h3>
+                        <p className="text-muted-foreground">
+                          {searchQuery
+                            ? "Try adjusting your search"
+                            : "Subscribe to channels to get started"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {filteredLivestreams.map((video) => (
                           <VideoCard
                             key={video.id}
                             id={video.id}

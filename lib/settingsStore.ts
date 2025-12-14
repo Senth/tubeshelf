@@ -4,11 +4,17 @@ import { join } from "path";
 export interface AppSettings {
   defaultSortOrder: "newest" | "oldest";
   theme: "light" | "dark" | "system";
+  enableVideos: boolean;
+  enableShorts: boolean;
+  enableLivestreams: boolean;
 }
 
 export const defaultSettings: AppSettings = {
   defaultSortOrder: "newest",
   theme: "system",
+  enableVideos: true,
+  enableShorts: true,
+  enableLivestreams: true,
 };
 
 const dataDir = "data";

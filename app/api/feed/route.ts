@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import { fetchChannelFeed } from "@/lib/rss";
+import {
+  fetchChannelFeed,
+  fetchChannelFeedShorts,
+  fetchChannelFeedLivestreams,
+} from "@/lib/rss";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
+import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
 
 const CONCURRENCY = 4;
@@ -9,6 +14,7 @@ const CONCURRENCY = 4;
 let isFetching = false;
 let cachedResult: any = null;
 let cacheTimestamp = 0;
+let cachedSettings: string = ""; // Cache settings state as a key
 const CACHE_DURATION = 1000; // 1 second cache to prevent duplicate requests
 
 // Queue for pending requests to coalesce while in-flight
@@ -19,10 +25,29 @@ export async function GET(req: Request) {
   const idsParam = url.searchParams.get("ids");
   const forceRefresh = url.searchParams.get("refresh") === "true";
 
-  // Check cache only if not forced refresh
+  // Get current settings to use as cache key - do this early
+  let currentSettings = {
+    enableVideos: true,
+    enableShorts: true,
+    enableLivestreams: true,
+  };
+  try {
+    const settingsData = await readSettings();
+    currentSettings = {
+      enableVideos: settingsData.enableVideos,
+      enableShorts: settingsData.enableShorts,
+      enableLivestreams: settingsData.enableLivestreams,
+    };
+  } catch {
+    // Use defaults
+  }
+  const settingsKey = JSON.stringify(currentSettings);
+
+  // Check cache only if not forced refresh AND settings haven't changed
   if (
     !forceRefresh &&
     cachedResult &&
+    settingsKey === cachedSettings &&
     Date.now() - cacheTimestamp < CACHE_DURATION
   ) {
     return NextResponse.json(cachedResult);
@@ -70,21 +95,72 @@ export async function GET(req: Request) {
   // Use a shared queue to avoid race conditions causing duplicate processing
   const queue = [...channelIds];
 
+  // Use the settings read at the top of the function
+  const feedSettings = currentSettings;
+
   const worker = async () => {
     // Loop until queue is empty; shift() ensures unique assignment
     while (queue.length > 0) {
       const current = queue.shift()!;
       try {
-        const { videos, meta } = await fetchChannelFeed(current);
-        videos.forEach((video) => {
-          items.push({
-            ...video,
-            channelTitle: video.channelTitle || meta.title,
-            thumbnail: video.thumbnail || meta.thumbnail,
-            channelId: video.channelId || current,
-            isShort: video.isShort,
+        let meta: { title: string; thumbnail?: string } | undefined;
+
+        // Fetch regular videos only if enabled
+        if (feedSettings.enableVideos) {
+          const result = await fetchChannelFeed(current);
+          meta = result.meta;
+          const regularVideos = result.videos;
+          regularVideos.forEach((video) => {
+            items.push({
+              ...video,
+              channelTitle: video.channelTitle || meta?.title,
+              thumbnail: video.thumbnail || meta?.thumbnail,
+              channelId: video.channelId || current,
+              isShort: video.isShort,
+              isLivestream: video.isLivestream,
+            });
           });
-        });
+        }
+
+        // Fetch shorts if enabled
+        if (feedSettings.enableShorts) {
+          try {
+            const { videos: shortVideos } = await fetchChannelFeedShorts(
+              current
+            );
+            shortVideos.forEach((video) => {
+              items.push({
+                ...video,
+                channelTitle: video.channelTitle || meta?.title,
+                thumbnail: video.thumbnail || meta?.thumbnail,
+                channelId: video.channelId || current,
+                isShort: true,
+              });
+            });
+          } catch {
+            // Continue if shorts fetch fails
+          }
+        }
+
+        // Fetch livestreams if enabled
+        if (feedSettings.enableLivestreams) {
+          try {
+            const { videos: livestreams } = await fetchChannelFeedLivestreams(
+              current
+            );
+            livestreams.forEach((video) => {
+              items.push({
+                ...video,
+                channelTitle: video.channelTitle || meta?.title,
+                thumbnail: video.thumbnail || meta?.thumbnail,
+                channelId: video.channelId || current,
+                isLivestream: true,
+              });
+            });
+          } catch {
+            // Continue if livestreams fetch fails
+          }
+        }
         // Update progress with channel info
         updateProgress(current, meta.title, sessionId);
       } catch (err) {
@@ -108,6 +184,8 @@ export async function GET(req: Request) {
   // Return feed immediately without waiting for avatar enrichment
   const result = { items };
   cachedResult = result;
+  cachedSettings = settingsKey; // Store settings key with cache
+  cacheTimestamp = Date.now();
   isFetching = false;
 
   // Resolve any coalesced pending requests

@@ -11,6 +11,7 @@ export interface FeedVideo {
   thumbnail?: string;
   duration?: string;
   isShort?: boolean;
+  isLivestream?: boolean;
 }
 
 export interface ChannelMeta {
@@ -108,9 +109,42 @@ async function fetchChannelAvatar(
 }
 
 export async function fetchChannelFeed(channelId: string) {
-  const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(
-    channelId
-  )}`;
+  // Always fetch regular videos using UULF (videos only, no shorts, no livestreams)
+  return fetchChannelFeedByType(channelId, "videos");
+}
+
+export async function fetchChannelFeedShorts(channelId: string) {
+  // Fetch all content and filter for shorts
+  return fetchChannelFeedByType(channelId, "shorts");
+}
+
+export async function fetchChannelFeedLivestreams(channelId: string) {
+  // Fetch livestreams using UULV
+  return fetchChannelFeedByType(channelId, "livestreams");
+}
+
+async function fetchChannelFeedByType(
+  channelId: string,
+  type: "videos" | "shorts" | "livestreams"
+) {
+  let playlistId = channelId;
+
+  if (channelId.startsWith("UC")) {
+    if (type === "videos") {
+      // Videos only (no shorts, no livestreams)
+      playlistId = "UULF" + channelId.slice(2);
+    } else if (type === "livestreams") {
+      // Livestreams only
+      playlistId = "UULV" + channelId.slice(2);
+    }
+    // For shorts, use default channel_id to get all content, then filter
+  }
+
+  const feedUrl = `https://www.youtube.com/feeds/videos.xml?${
+    playlistId.startsWith("UULF") || playlistId.startsWith("UULV")
+      ? `playlist_id=${encodeURIComponent(playlistId)}`
+      : `channel_id=${encodeURIComponent(channelId)}`
+  }`;
   const res = await fetch(feedUrl, { next: { revalidate: 300 } });
   if (!res.ok) {
     console.error("[RSS] Failed to fetch channel feed", {
@@ -133,7 +167,18 @@ export async function fetchChannelFeed(channelId: string) {
     : [];
 
   const videos = entries
-    .map((entry: any) => parseEntry(entry))
+    .map((entry: any) => {
+      const video = parseEntry(entry);
+      if (video) {
+        if (type === "livestreams") {
+          video.isLivestream = true;
+        } else if (type === "shorts" && !video.isShort) {
+          // Filter out non-shorts when fetching shorts type
+          return null;
+        }
+      }
+      return video;
+    })
     .filter(Boolean) as FeedVideo[];
 
   const channelTitle = feed?.title || "";

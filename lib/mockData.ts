@@ -7,6 +7,7 @@ export interface Video {
   duration?: string;
   uploadedAt: string;
   isShort?: boolean;
+  isLivestream?: boolean;
   views?: number;
   url: string;
 }
@@ -53,6 +54,7 @@ export async function getVideos(forceRefresh = false): Promise<Video[]> {
     uploadedAt: item.publishedAt || new Date().toISOString(),
     views: item.viewCount || item.views,
     isShort: item.isShort || false,
+    isLivestream: item.isLivestream || false,
     url: item.url,
   }));
 }
