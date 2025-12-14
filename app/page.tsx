@@ -478,13 +478,15 @@ export default function Home() {
                     if (theme === "dark") return "/icon-dark.svg";
                     if (theme === "light") return "/icon-light.svg";
                     // system theme
-                    const prefersDark = window.matchMedia(
-                      "(prefers-color-scheme: dark)"
-                    ).matches;
+                    const prefersDark =
+                      typeof window !== "undefined" &&
+                      window.matchMedia("(prefers-color-scheme: dark)").matches;
                     return prefersDark ? "/icon-dark.svg" : "/icon-light.svg";
                   })()}
-                  alt="TubeShelf"
-                  className="h-11 w-11"
+                  alt=""
+                  className={`h-11 w-11 transition-opacity duration-300 ${
+                    mounted ? "opacity-100" : "opacity-0"
+                  }`}
                 />
                 <h1 className="text-xl font-bold hidden sm:block">TubeShelf</h1>
               </div>
@@ -789,6 +791,12 @@ export default function Home() {
           <>
             {/* Watch Later Page */}
             <div className="mb-8">
+              <button
+                onClick={() => setCurrentPage("home")}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
+              >
+                ← Back to Feed
+              </button>
               <h2 className="text-2xl sm:text-3xl font-bold mb-2">
                 Watch Later
               </h2>
