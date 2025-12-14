@@ -76,6 +76,10 @@ Want a YouTube subscription feed without a Google account? Invidious used to be 
 
 No Google account required. No algorithm. No tracking. Just your subscriptions in order.
 
+## Similar Projects
+
+- **[Enriched RSS](https://gitlab.com/sila_point/enriched-rss)** - A project with similar goals of enhancing feed experiences. Inspiration on solving the challenge of duration metadata.
+
 ## License
 
 This project is licensed under [AGPL-3.0 License](LICENSE).
