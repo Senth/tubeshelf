@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   X,
   Plus,
@@ -56,6 +56,38 @@ export function SubscriptionManager({
   isOpen,
   onClose,
 }: SubscriptionManagerProps) {
+  // Thumbnail cache for persistence
+  const [thumbnailCache, setThumbnailCache] = useState<Record<string, string>>(
+    {}
+  );
+
+  // Load thumbnail cache from localStorage on mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("subscriptionThumbnailCache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setThumbnailCache(parsed);
+      }
+    } catch (err) {
+      console.error("Failed to load thumbnail cache:", err);
+    }
+  }, []);
+
+  // Save thumbnail cache to localStorage whenever it changes
+  useEffect(() => {
+    if (Object.keys(thumbnailCache).length > 0) {
+      try {
+        localStorage.setItem(
+          "subscriptionThumbnailCache",
+          JSON.stringify(thumbnailCache)
+        );
+      } catch (err) {
+        console.error("Failed to save thumbnail cache:", err);
+      }
+    }
+  }, [thumbnailCache]);
+
   // Ensure we always have a valid selected list
   const currentList = lists.find((l) => l.id === currentListId);
   const fallbackList = lists.length > 0 ? lists[0] : null;
@@ -69,6 +101,15 @@ export function SubscriptionManager({
   }, [currentListId, lists, currentList, fallbackList, onSelectList]);
 
   const subscriptions = displayedList?.subscriptions || [];
+
+  // Merge cached thumbnails into subscriptions
+  const subscriptionsWithCache = subscriptions.map((sub) => {
+    const cached = thumbnailCache[sub.url];
+    return {
+      ...sub,
+      thumbnail: cached || sub.thumbnail,
+    };
+  });
 
   const [input, setInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -418,7 +459,7 @@ export function SubscriptionManager({
 
           {/* Subscriptions List */}
           <div className="space-y-3">
-            {subscriptions
+            {subscriptionsWithCache
               .filter(
                 (sub) =>
                   sub.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -439,14 +480,24 @@ export function SubscriptionManager({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={
-                          sub.thumbnail ||
-                          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23e5e7eb' width='100' height='100'/%3E%3Ccircle cx='50' cy='35' r='20' fill='%239ca3af'/%3E%3Cpath d='M 30 70 Q 30 60 50 60 Q 70 60 70 70 L 70 100 L 30 100 Z' fill='%239ca3af'/%3E%3C/svg%3E"
+                          sub.thumbnail
+                            ? `/api/image-proxy?url=${encodeURIComponent(
+                                sub.thumbnail
+                              )}`
+                            : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23e5e7eb' width='100' height='100'/%3E%3Ccircle cx='50' cy='35' r='20' fill='%239ca3af'/%3E%3Cpath d='M 30 70 Q 30 60 50 60 Q 70 60 70 70 L 70 100 L 30 100 Z' fill='%239ca3af'/%3E%3C/svg%3E"
                         }
                         alt={sub.title}
                         className="w-10 h-10 rounded-full object-cover animate-pulse"
-                        onLoad={(e) =>
-                          e.currentTarget.classList.remove("animate-pulse")
-                        }
+                        onLoad={(e) => {
+                          e.currentTarget.classList.remove("animate-pulse");
+                          // Cache the thumbnail URL when it loads successfully
+                          if (sub.thumbnail && !thumbnailCache[sub.url]) {
+                            setThumbnailCache((prev) => ({
+                              ...prev,
+                              [sub.url]: sub.thumbnail!,
+                            }));
+                          }
+                        }}
                         onError={(e) => {
                           e.currentTarget.classList.add("animate-pulse");
                         }}
