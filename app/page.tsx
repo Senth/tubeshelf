@@ -142,8 +142,10 @@ export default function Home() {
 
       // Then fetch videos with streaming
       try {
-        const response = await fetch(`/api/feed/stream?refresh=${forceRefresh}`);
-        
+        const response = await fetch(
+          `/api/feed/stream?refresh=${forceRefresh}`
+        );
+
         console.log("[Stream] Starting stream...");
         if (!response.ok) throw new Error("Failed to fetch videos stream");
 
@@ -171,7 +173,7 @@ export default function Home() {
                 try {
                   const rawVideo = JSON.parse(line.slice(6));
                   const videoId = rawVideo.id || rawVideo.videoId;
-                  
+
                   // Transform raw API response to Video interface
                   const video = {
                     id: videoId,
@@ -184,11 +186,16 @@ export default function Home() {
                         ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
                         : "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400&h=225&fit=crop"),
                     duration: rawVideo.duration || "—",
-                    uploadedAt: rawVideo.publishedAt || new Date().toISOString(),
+                    uploadedAt:
+                      rawVideo.publishedAt || new Date().toISOString(),
                     views: rawVideo.viewCount || rawVideo.views,
                     isShort: rawVideo.isShort || false,
                     isLivestream: rawVideo.isLivestream || false,
-                    url: rawVideo.url || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : ""),
+                    url:
+                      rawVideo.url ||
+                      (videoId
+                        ? `https://www.youtube.com/watch?v=${videoId}`
+                        : ""),
                   };
 
                   if (!videoIds.has(videoId)) {
@@ -224,13 +231,22 @@ export default function Home() {
                       console.log("[Stream] Adding livestream:", videoId);
                       setFilteredLivestreams((prev) => {
                         const updated = [...prev, video];
-                        console.log("[Stream] FilteredLivestreams state now has", updated.length, "items");
+                        console.log(
+                          "[Stream] FilteredLivestreams state now has",
+                          updated.length,
+                          "items"
+                        );
                         return updated;
                       });
                     }
                   }
                 } catch (e) {
-                  console.error("[Stream] Failed to parse line:", e, "line:", line);
+                  console.error(
+                    "[Stream] Failed to parse line:",
+                    e,
+                    "line:",
+                    line
+                  );
                   // Continue if line is not valid JSON
                 }
               }
@@ -469,7 +485,9 @@ export default function Home() {
         // Newest first by default
         const comparison = dateB - dateA;
         // Reverse if oldest first is selected
-        return settings?.defaultSortOrder === "oldest" ? -comparison : comparison;
+        return settings?.defaultSortOrder === "oldest"
+          ? -comparison
+          : comparison;
       });
     };
 

@@ -15,9 +15,7 @@
 > [!WARNING]
 > TubeShelf is in early development and subject to breaking changes. Expect bugs and missing features. Contributions and feedback are welcome!
 
-**TubeShelf** is a self-hosted YouTube subscription feed that gives you a clean, chronological video inbox — no algorithm, no tracking, no distractions.
-
-Follow your favorite creators in a simple timeline-based feed you control. TubeShelf fetches videos directly from YouTube RSS feeds and presents them in order of upload, without recommendations or engagement manipulation.
+**TubeShelf** is a self-hosted YouTube subscription experience without a Google account. Browse your subscriptions in a clean, chronological feed—no algorithm, no tracking, just the videos you want in the order they were uploaded.
 
 ## Features
 
@@ -30,11 +28,8 @@ Follow your favorite creators in a simple timeline-based feed you control. TubeS
 
 ## Limitations
 
-> [!NOTE]
-> TubeShelf uses YouTube RSS feeds, which only provide the **latest ~15 videos** per channel. This is a YouTube limitation, not a bug. TubeShelf focuses on recent uploads rather than complete channel archives.
-
-- No video duration display (RSS feeds don't include this metadata)
-- Limited to RSS feed capabilities (~15 recent videos per channel)
+- **No video duration via RSS** - RSS feeds don't include duration metadata. Fetching durations requires finding an Invidious instance with open API access, but fetching can be slow.
+- **Limited to RSS feed capabilities** - ~15 recent videos per channel
 
 ## Quick Start
 
@@ -70,11 +65,9 @@ Access the web UI at **http://localhost:3000**
 
 ## Why TubeShelf?
 
-Want a YouTube subscription feed without a Google account? Invidious used to be the answer, but YouTube now actively blocks it.
+Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal—a distraction-free subscription feed without a Google account.
 
-**TubeShelf** takes a different approach: it collects videos from YouTube RSS feeds and displays them as a clean chronological list. Click any video to open it on YouTube.
-
-No Google account required. No algorithm. No tracking. Just your subscriptions in order.
+It uses YouTube RSS feeds to collect videos from your subscriptions and displays them chronologically. Click any video to open it on YouTube.
 
 ## Similar Projects
 
