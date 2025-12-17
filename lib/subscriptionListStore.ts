@@ -8,6 +8,7 @@ export interface SubscriptionInList {
   url: string;
   thumbnail?: string;
   addedAt: string;
+  lastUploadedAt?: string; // Tracks last video upload from this channel - not exported
 }
 
 export interface SubscriptionList {

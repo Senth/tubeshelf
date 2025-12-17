@@ -9,6 +9,7 @@ export interface AppSettings {
   enableLivestreams: boolean;
   enableVideoDuration: boolean;
   invidousInstance: string;
+  hasCompletedWelcome: boolean;
 }
 
 export const defaultSettings: AppSettings = {
@@ -19,6 +20,7 @@ export const defaultSettings: AppSettings = {
   enableLivestreams: true,
   enableVideoDuration: false,
   invidousInstance: "",
+  hasCompletedWelcome: false,
 };
 
 const dataDir = "data";

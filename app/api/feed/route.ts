@@ -24,6 +24,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const idsParam = url.searchParams.get("ids");
   const forceRefresh = url.searchParams.get("refresh") === "true";
+  const requestId = Math.random().toString(36).substring(7);
+
+  console.log(
+    `[Feed] Request ${requestId} started - ids=${
+      idsParam || "all"
+    }, forceRefresh=${forceRefresh}`
+  );
 
   // Get current settings to use as cache key - do this early
   let currentSettings = {
@@ -52,21 +59,27 @@ export async function GET(req: Request) {
     settingsKey === cachedSettings &&
     Date.now() - cacheTimestamp < CACHE_DURATION
   ) {
+    console.log(`[Feed] Request ${requestId} using cached result`);
     return NextResponse.json(cachedResult);
   }
 
   // If a fetch is in progress and not forced refresh, coalesce this request
   if (isFetching && !forceRefresh) {
+    console.log(
+      `[Feed] Request ${requestId} coalescing with in-flight request`
+    );
     const result = await new Promise<any>((resolve) => {
       pendingResolvers.push(resolve);
     });
     return NextResponse.json(result);
   }
 
+  console.log(`[Feed] Request ${requestId} starting fetch operation`);
   isFetching = true;
   cacheTimestamp = Date.now();
 
   let channelIds: string[] = [];
+  let subscriptionMetadata = new Map<string, any>();
 
   if (idsParam) {
     channelIds = idsParam
@@ -74,20 +87,50 @@ export async function GET(req: Request) {
       .map((id) => id.trim())
       .filter(Boolean);
   } else {
-    // Get all unique channel IDs from all subscription lists
+    // Get all unique channel IDs from all subscription lists with their metadata
     const listsData = await readLists();
-    const uniqueChannelIds = new Set<string>();
     listsData.lists.forEach((list) => {
       list.subscriptions.forEach((sub) => {
-        uniqueChannelIds.add(sub.channelId);
+        if (!subscriptionMetadata.has(sub.channelId)) {
+          subscriptionMetadata.set(sub.channelId, sub);
+        }
       });
     });
-    channelIds = Array.from(uniqueChannelIds);
+
+    // Sort channels by last upload time (most recent first)
+    const sortedChannels = Array.from(subscriptionMetadata.values()).sort(
+      (a, b) => {
+        const aTime = a.lastUploadedAt
+          ? new Date(a.lastUploadedAt).getTime()
+          : 0;
+        const bTime = b.lastUploadedAt
+          ? new Date(b.lastUploadedAt).getTime()
+          : 0;
+        // Newer uploads first, then oldest ones
+        return bTime - aTime;
+      }
+    );
+
+    channelIds = sortedChannels.map((sub) => sub.channelId);
   }
 
   if (channelIds.length === 0) {
     return NextResponse.json({ items: [] });
   }
+
+  // Log the fetch priority order (top 5 channels)
+  console.log(
+    "[Feed] Channel fetch priority order:",
+    channelIds
+      .slice(0, 5)
+      .map(
+        (id) =>
+          `${subscriptionMetadata.get(id)?.title || id} (${
+            subscriptionMetadata.get(id)?.lastUploadedAt || "never"
+          })`
+      )
+      .join(", ")
+  );
 
   // Initialize progress tracking
   initProgress(channelIds.length);
@@ -96,22 +139,51 @@ export async function GET(req: Request) {
   const items: any[] = [];
   // Use a shared queue to avoid race conditions causing duplicate processing
   const queue = [...channelIds];
+  // Track which channels had videos (for ranking updates)
+  const channelsWithVideos = new Map<string, string>();
 
   // Use the settings read at the top of the function
   const feedSettings = currentSettings;
 
+  let workerCount = 0;
+
   const worker = async () => {
+    const workerId = ++workerCount;
+    console.log(
+      `[Feed] Worker ${workerId} for request ${requestId} started, queue has ${queue.length} channels`
+    );
+    let processed = 0;
+
     // Loop until queue is empty; shift() ensures unique assignment
     while (queue.length > 0) {
       const current = queue.shift()!;
+      processed++;
+      console.log(
+        `[Feed] Worker ${workerId} processing channel ${current} (queue now has ${queue.length})`
+      );
       try {
         let meta: { title: string; thumbnail?: string } | undefined;
+        let hasVideos = false;
+        let latestUploadTime: string | undefined;
 
         // Fetch regular videos only if enabled
         if (feedSettings.enableVideos) {
+          console.log(
+            `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
+          );
           const result = await fetchChannelFeed(current);
           meta = result.meta;
           const regularVideos = result.videos;
+          if (regularVideos.length > 0) {
+            hasVideos = true;
+            // Get the most recent upload from this channel
+            const mostRecent = regularVideos.reduce((latest, video) => {
+              const videoTime = new Date(video.publishedAt).getTime();
+              const latestTime = new Date(latest.publishedAt).getTime();
+              return videoTime > latestTime ? video : latest;
+            });
+            latestUploadTime = mostRecent.publishedAt;
+          }
           regularVideos.forEach((video) => {
             items.push({
               ...video,
@@ -132,6 +204,24 @@ export async function GET(req: Request) {
             // Update meta if we haven't set it yet
             if (!meta && shortMeta) {
               meta = shortMeta;
+            }
+            if (shortVideos.length > 0) {
+              hasVideos = true;
+              // Get the most recent upload from shorts
+              const mostRecent = shortVideos.reduce((latest, video) => {
+                const videoTime = new Date(video.publishedAt).getTime();
+                const latestTime = new Date(latest.publishedAt).getTime();
+                return videoTime > latestTime ? video : latest;
+              });
+              if (!latestUploadTime) {
+                latestUploadTime = mostRecent.publishedAt;
+              } else {
+                const shortTime = new Date(mostRecent.publishedAt).getTime();
+                const currentTime = new Date(latestUploadTime).getTime();
+                if (shortTime > currentTime) {
+                  latestUploadTime = mostRecent.publishedAt;
+                }
+              }
             }
             shortVideos.forEach((video) => {
               items.push({
@@ -156,6 +246,23 @@ export async function GET(req: Request) {
             if (!meta && livestreamMeta) {
               meta = livestreamMeta;
             }
+            if (livestreams.length > 0) {
+              hasVideos = true;
+              const mostRecent = livestreams.reduce((latest, video) => {
+                const videoTime = new Date(video.publishedAt).getTime();
+                const latestTime = new Date(latest.publishedAt).getTime();
+                return videoTime > latestTime ? video : latest;
+              });
+              if (!latestUploadTime) {
+                latestUploadTime = mostRecent.publishedAt;
+              } else {
+                const liveTime = new Date(mostRecent.publishedAt).getTime();
+                const currentTime = new Date(latestUploadTime).getTime();
+                if (liveTime > currentTime) {
+                  latestUploadTime = mostRecent.publishedAt;
+                }
+              }
+            }
             livestreams.forEach((video) => {
               items.push({
                 ...video,
@@ -169,6 +276,16 @@ export async function GET(req: Request) {
             // Continue if livestreams fetch fails
           }
         }
+
+        // Track the latest upload time for this channel
+        // Always update the timestamp with either the latest upload or current time
+        if (latestUploadTime) {
+          channelsWithVideos.set(current, latestUploadTime);
+        } else {
+          // Even if no videos found, record current time to update the subscription
+          channelsWithVideos.set(current, new Date().toISOString());
+        }
+
         // Update progress with channel info
         const channelTitle = meta?.title || current;
         updateProgress(current, channelTitle, sessionId);
@@ -181,9 +298,42 @@ export async function GET(req: Request) {
         updateProgress(current, `[Error] ${current}`, sessionId);
       }
     }
+    console.log(
+      `[Feed] Worker ${workerId} for request ${requestId} completed, processed ${processed} channels`
+    );
   };
 
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+  // Update lastUploadedAt for all channels that were processed
+  console.log(
+    `[Feed] Updating lastUploadedAt for ${channelsWithVideos.size} channels`
+  );
+  if (channelsWithVideos.size > 0) {
+    try {
+      const listsData = await readLists();
+      let updatedCount = 0;
+      listsData.lists.forEach((list) => {
+        list.subscriptions.forEach((sub) => {
+          if (channelsWithVideos.has(sub.channelId)) {
+            const newTime = channelsWithVideos.get(sub.channelId);
+            sub.lastUploadedAt = newTime;
+            updatedCount++;
+            console.log(
+              `[Feed] Updated ${sub.title} (${sub.channelId}) to ${newTime}`
+            );
+          }
+        });
+      });
+      console.log(
+        `[Feed] Updated ${updatedCount} subscriptions with lastUploadedAt`
+      );
+      await writeLists(listsData);
+    } catch (err) {
+      console.error("[Feed] Failed to update subscription ranking:", err);
+      // Continue anyway - this is not critical
+    }
+  }
 
   items.sort(
     (a, b) =>
@@ -199,10 +349,15 @@ export async function GET(req: Request) {
   cachedResult = result;
   cachedSettings = settingsKey; // Store settings key with cache
   cacheTimestamp = Date.now();
-  isFetching = false;
 
   // Resolve any coalesced pending requests
-  pendingResolvers.splice(0).forEach((resolve) => resolve(result));
+  const resolvers = pendingResolvers.splice(0);
+  isFetching = false;
+  resolvers.forEach((resolve) => resolve(result));
+
+  console.log(
+    `[Feed] Request ${requestId} completed - returning ${items.length} items`
+  );
 
   // Fetch avatars and update subscriptions in the background (non-blocking)
   fetchAvatarsAndUpdateAsync(channelIds).catch((err) =>

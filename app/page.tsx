@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useContext, useRef } from "react";
+import { useState, useEffect, useContext, useRef, useMemo } from "react";
 import { ThemeContext } from "@/components/ThemeProvider";
 import {
   Play,
@@ -10,6 +10,8 @@ import {
   List,
   X,
   RefreshCw,
+  Zap,
+  RadioTower,
 } from "lucide-react";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
@@ -17,6 +19,7 @@ import { SubscriptionManager } from "@/components/SubscriptionManager";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WatchLater } from "@/components/WatchLater";
 import { LoadingProgress } from "@/components/LoadingProgress";
+import { WelcomeWizard, type WelcomeOptions } from "@/components/WelcomeWizard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -58,6 +61,7 @@ export default function Home() {
   const [feedTab, setFeedTab] = useState<FeedTab>("videos");
   const [videos, setVideos] = useState<Video[]>([]);
   const [shorts, setShorts] = useState<Video[]>([]);
+  const [livestreams, setLivestreams] = useState<Video[]>([]);
   const [watchLater, setWatchLater] = useState<WatchLaterItem[]>([]);
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
   const [showSubscriptions, setShowSubscriptions] = useState(false);
@@ -84,6 +88,8 @@ export default function Home() {
   } | null>(null);
   const refreshingRef = useRef(false);
   const initialLoadRef = useRef(false);
+  const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
+  const [welcomeCompleted, setWelcomeCompleted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -156,6 +162,7 @@ export default function Home() {
           // Reset current lists to avoid duplicate counts on refresh
           setVideos([]);
           setShorts([]);
+          setLivestreams([]);
           setFilteredVideos([]);
           setFilteredShorts([]);
           setFilteredLivestreams([]);
@@ -236,10 +243,10 @@ export default function Home() {
                       });
                     } else if (video.isLivestream) {
                       console.log("[Stream] Adding livestream:", videoId);
-                      setFilteredLivestreams((prev) => {
+                      setLivestreams((prev) => {
                         const updated = [...prev, video];
                         console.log(
-                          "[Stream] FilteredLivestreams state now has",
+                          "[Stream] Livestreams state now has",
                           updated.length,
                           "items"
                         );
@@ -269,7 +276,7 @@ export default function Home() {
           console.log("[Fallback] Received", vids.length, "videos");
           setVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
           setShorts(vids.filter((v) => v.isShort));
-          setFilteredLivestreams(vids.filter((v) => v.isLivestream));
+          setLivestreams(vids.filter((v) => v.isLivestream));
           setFilteredVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
           setFilteredShorts(vids.filter((v) => v.isShort));
         } catch (fallbackErr) {
@@ -358,10 +365,16 @@ export default function Home() {
   useEffect(() => {
     // Ref used to suppress duplicate init in dev Strict Mode
     refreshingRef.current = false;
+
     const init = async () => {
       try {
         const appSettings = await getSettings();
         setSettings(appSettings);
+
+        // Check if this is first time user
+        if (!appSettings.hasCompletedWelcome) {
+          setShowWelcomeWizard(true);
+        }
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
@@ -451,6 +464,7 @@ export default function Home() {
     const term = searchQuery.trim().toLowerCase();
     let vids = videos;
     let shts = shorts;
+    let liveStreams = livestreams;
 
     // Filter by subscription list
     if (filterListId !== "all") {
@@ -461,6 +475,7 @@ export default function Home() {
         );
         vids = vids.filter((v) => channelIds.has(v.channelId));
         shts = shts.filter((v) => channelIds.has(v.channelId));
+        liveStreams = liveStreams.filter((v) => channelIds.has(v.channelId));
       }
     }
 
@@ -476,12 +491,18 @@ export default function Home() {
           v.title.toLowerCase().includes(term) ||
           v.channel.toLowerCase().includes(term)
       );
+      liveStreams = liveStreams.filter(
+        (v) =>
+          v.title.toLowerCase().includes(term) ||
+          v.channel.toLowerCase().includes(term)
+      );
     }
 
     // Filter out watched videos if hideWatched is true
     if (hideWatched) {
       vids = vids.filter((v) => !watchedVideos.has(v.id));
       shts = shts.filter((v) => !watchedVideos.has(v.id));
+      liveStreams = liveStreams.filter((v) => !watchedVideos.has(v.id));
     }
 
     // Sort by date (newest first by default, oldest first if setting is "oldest")
@@ -500,13 +521,16 @@ export default function Home() {
 
     vids = sortByDate(vids);
     shts = sortByDate(shts);
+    liveStreams = sortByDate(liveStreams);
 
     setFilteredVideos(vids);
     setFilteredShorts(shts);
+    setFilteredLivestreams(liveStreams);
   }, [
     searchQuery,
     videos,
     shorts,
+    livestreams,
     hideWatched,
     watchedVideos,
     settings?.defaultSortOrder,
@@ -608,6 +632,33 @@ export default function Home() {
     }
   };
 
+  const handleResetAllData = async () => {
+    try {
+      // Clear all subscriptions
+      const res = await fetch("/api/subscription-lists/subscriptions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear", listId: null }),
+      });
+      if (!res.ok) throw new Error("Failed to delete subscriptions");
+
+      // Clear watch history
+      await clearWatchHistory();
+      setWatchedVideos(new Set());
+
+      // Reset settings
+      await resetAllSettings();
+      const freshSettings = await getSettings();
+      setSettings(freshSettings);
+
+      // Refresh feed data
+      await refreshData();
+    } catch (err) {
+      console.error("Failed to reset application:", err);
+      throw err;
+    }
+  };
+
   const handleRemoveSubscription = async (id: string) => {
     try {
       await removeSubscription(id, currentListId);
@@ -675,6 +726,71 @@ export default function Home() {
     setWatchLater(watchLater.filter((w) => w.id !== id));
   };
 
+  const handleWelcomeWizardComplete = async (options: WelcomeOptions) => {
+    setShowWelcomeWizard(false);
+    setWelcomeCompleted(true);
+
+    try {
+      // Apply wizard settings (including hasCompletedWelcome flag)
+      const updates: Partial<typeof settings> = {
+        enableVideos: options.enableVideos,
+        invidousInstance: options.invidousInstance,
+        enableShorts: options.enableShorts,
+        enableLivestreams: options.enableLivestreams,
+        enableVideoDuration: options.invidousInstance ? true : false,
+        hasCompletedWelcome: true,
+      };
+
+      await updateSettings(updates);
+      const freshSettings = await getSettings();
+      setSettings(freshSettings);
+
+      // Refresh feed with new settings
+      await refreshData(true);
+    } catch (err) {
+      console.error("Failed to apply welcome wizard settings:", err);
+    }
+  };
+
+  const handleWelcomeWizardSkip = async () => {
+    setShowWelcomeWizard(false);
+    setWelcomeCompleted(true);
+
+    try {
+      // Mark as completed even if skipped
+      await updateSettings({ hasCompletedWelcome: true });
+      const freshSettings = await getSettings();
+      setSettings(freshSettings);
+    } catch (err) {
+      console.error("Failed to mark welcome wizard as completed:", err);
+    }
+  };
+
+  const handleWelcomeWizardImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      await importSubscriptions(
+        text,
+        file.name.endsWith(".opml") ? "opml" : "json",
+        currentListId
+      );
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ? err.message : "Failed to import file"
+      );
+    }
+  };
+
+  const iconUrl = useMemo(() => {
+    if (theme === "dark") return "/icon-dark.svg";
+    if (theme === "light") return "/icon-light.svg";
+    // system theme
+    const prefersDark =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "/icon-dark.svg" : "/icon-light.svg";
+  }, [theme]);
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Navigation */}
@@ -691,15 +807,7 @@ export default function Home() {
                 }}
               >
                 <img
-                  src={(() => {
-                    if (theme === "dark") return "/icon-dark.svg";
-                    if (theme === "light") return "/icon-light.svg";
-                    // system theme
-                    const prefersDark =
-                      typeof window !== "undefined" &&
-                      window.matchMedia("(prefers-color-scheme: dark)").matches;
-                    return prefersDark ? "/icon-dark.svg" : "/icon-light.svg";
-                  })()}
+                  src={iconUrl}
                   alt=""
                   className={`h-11 w-11 transition-opacity duration-300 ${
                     mounted ? "opacity-100" : "opacity-0"
@@ -964,14 +1072,16 @@ export default function Home() {
                       </div>
                     ) : filteredVideos.length === 0 ? (
                       <div className="text-center py-12">
-                        <Play className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                        <div className="text-5xl mb-4">🎬</div>
                         <h3 className="text-lg font-semibold mb-2">
-                          No videos found
+                          {searchQuery
+                            ? "No videos found"
+                            : "Your feed is empty"}
                         </h3>
                         <p className="text-muted-foreground">
                           {searchQuery
                             ? "Try adjusting your search"
-                            : "Subscribe to channels to get started"}
+                            : "Subscribe to channels to populate your feed with fresh videos"}
                         </p>
                       </div>
                     ) : (
@@ -1017,14 +1127,14 @@ export default function Home() {
                       </div>
                     ) : filteredShorts.length === 0 ? (
                       <div className="text-center py-12">
-                        <Play className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                        <div className="text-5xl mb-4">⏱️</div>
                         <h3 className="text-lg font-semibold mb-2">
-                          No shorts found
+                          {searchQuery ? "No shorts found" : "No shorts yet"}
                         </h3>
                         <p className="text-muted-foreground">
                           {searchQuery
                             ? "Try adjusting your search"
-                            : "Subscribe to channels to get started"}
+                            : "Subscribed channels haven't posted any shorts lately"}
                         </p>
                       </div>
                     ) : (
@@ -1066,14 +1176,16 @@ export default function Home() {
                       </div>
                     ) : filteredLivestreams.length === 0 ? (
                       <div className="text-center py-12">
-                        <Play className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                        <div className="text-5xl mb-4">📡</div>
                         <h3 className="text-lg font-semibold mb-2">
-                          No livestreams found
+                          {searchQuery
+                            ? "No livestreams found"
+                            : "No livestreams"}
                         </h3>
                         <p className="text-muted-foreground">
                           {searchQuery
                             ? "Try adjusting your search"
-                            : "Subscribe to channels to get started"}
+                            : "No channels are currently streaming"}
                         </p>
                       </div>
                     ) : (
@@ -1206,6 +1318,7 @@ export default function Home() {
           onDeleteSubscriptions={handleDeleteAllSubscriptions}
           onClearWatchHistory={handleClearWatchHistory}
           onResetSettings={handleResetAllSettings}
+          onResetAllData={handleResetAllData}
           subscriptionLists={subscriptionLists}
           currentListId={currentListId}
           isOpen={showSettings}
@@ -1222,6 +1335,15 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* Welcome Wizard */}
+      {showWelcomeWizard && (
+        <WelcomeWizard
+          onComplete={handleWelcomeWizardComplete}
+          onSkip={handleWelcomeWizardSkip}
+          onImportFile={handleWelcomeWizardImportFile}
+        />
+      )}
     </div>
   );
 }

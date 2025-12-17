@@ -14,6 +14,7 @@ interface SettingsPanelProps {
   onDeleteSubscriptions?: (listId?: string) => Promise<void>;
   onClearWatchHistory?: () => Promise<void>;
   onResetSettings?: () => Promise<void>;
+  onResetAllData?: () => Promise<void>;
   subscriptionLists?: Array<{ id: string; name: string }>;
   currentListId?: string;
   isOpen: boolean;
@@ -26,6 +27,7 @@ export function SettingsPanel({
   onDeleteSubscriptions,
   onClearWatchHistory,
   onResetSettings,
+  onResetAllData,
   subscriptionLists = [],
   currentListId,
   isOpen,
@@ -38,6 +40,11 @@ export function SettingsPanel({
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<"all" | string>("all");
   const [version, setVersion] = useState<string>("...");
+
+  useEffect(() => {
+    // Sync local state when settings prop changes
+    setLocal(settings);
+  }, [settings]);
 
   useEffect(() => {
     fetch("/api/version")
@@ -60,7 +67,7 @@ export function SettingsPanel({
   };
 
   const handleDangerAction = async (
-    action: "subscriptions" | "history" | "settings"
+    action: "subscriptions" | "history" | "settings" | "resetall"
   ) => {
     setSaving(true);
     setError(null);
@@ -70,6 +77,7 @@ export function SettingsPanel({
         await onDeleteSubscriptions?.(targetListId);
       } else if (action === "history") await onClearWatchHistory?.();
       else if (action === "settings") await onResetSettings?.();
+      else if (action === "resetall") await onResetAllData?.();
       setConfirmAction(null);
       onClose();
     } catch (err: any) {
@@ -110,7 +118,9 @@ export function SettingsPanel({
                       ? "Delete subscriptions?"
                       : confirmAction === "history"
                       ? "Clear all watch history?"
-                      : "Reset all settings to defaults?"}
+                      : confirmAction === "settings"
+                      ? "Reset all settings to defaults?"
+                      : "Reset entire application?"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {confirmAction === "subscriptions"
@@ -119,7 +129,9 @@ export function SettingsPanel({
                         : "This will remove all subscriptions from the selected list. This action cannot be undone."
                       : confirmAction === "history"
                       ? "This will clear all watched/unwatched states. This action cannot be undone."
-                      : "All settings will be reset to their default values. This action cannot be undone."}
+                      : confirmAction === "settings"
+                      ? "All settings will be reset to their default values. This action cannot be undone."
+                      : "All data will be erased - subscriptions, watch history, and settings will be reset to defaults. This action cannot be undone."}
                   </p>
                 </div>
               </div>
@@ -165,14 +177,18 @@ export function SettingsPanel({
                 <Button
                   onClick={() =>
                     handleDangerAction(
-                      confirmAction as "subscriptions" | "history" | "settings"
+                      confirmAction as
+                        | "subscriptions"
+                        | "history"
+                        | "settings"
+                        | "resetall"
                     )
                   }
                   variant="destructive"
                   size="sm"
                   disabled={saving}
                 >
-                  {saving ? "Deleting..." : "Delete"}
+                  {saving ? "Resetting..." : "Confirm"}
                 </Button>
               </div>
             </div>
@@ -275,8 +291,8 @@ export function SettingsPanel({
                   Video Duration
                 </label>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <div>
+                  <div className="flex items-start justify-between gap-4 p-3 bg-secondary/50 rounded-lg">
+                    <div className="flex-1">
                       <label className="text-sm font-medium cursor-pointer block">
                         Show Video Duration
                       </label>
@@ -284,16 +300,18 @@ export function SettingsPanel({
                         Fetches duration from Invidious API
                       </p>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        ⚠️ Warning: Enabling this will greatly increase refresh
-                        times
+                        ⚠️ First fetch may be slow (depends on channel count),
+                        but subsequent refreshes will be much faster.
                       </p>
                     </div>
-                    <Switch
-                      checked={local.enableVideoDuration}
-                      onCheckedChange={(checked) =>
-                        setLocal({ ...local, enableVideoDuration: checked })
-                      }
-                    />
+                    <div className="flex-shrink-0">
+                      <Switch
+                        checked={local.enableVideoDuration}
+                        onCheckedChange={(checked) =>
+                          setLocal({ ...local, enableVideoDuration: checked })
+                        }
+                      />
+                    </div>
                   </div>
 
                   {local.enableVideoDuration && (
@@ -379,14 +397,14 @@ export function SettingsPanel({
                     </p>
                   </button>
                   <button
-                    onClick={() => setConfirmAction("settings")}
+                    onClick={() => setConfirmAction("resetall")}
                     className="w-full px-4 py-2 text-left text-sm rounded border border-destructive/30 hover:bg-destructive/10 transition-colors"
                   >
                     <p className="font-medium text-destructive">
-                      Reset All Settings
+                      Reset Application
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Restore default settings
+                      Erase all data and settings
                     </p>
                   </button>
                 </div>

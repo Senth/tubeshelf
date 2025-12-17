@@ -1,5 +1,10 @@
 import { XMLParser } from "fast-xml-parser";
 import { readSettings } from "./settingsStore";
+import {
+  getCachedDurations,
+  getUncachedVideoIds,
+  mergeCachedWithFresh,
+} from "./durationCache";
 
 export interface FeedVideo {
   id: string;
@@ -109,23 +114,53 @@ async function fetchChannelAvatar(
   }
 }
 
-// Cache for durations to avoid repeated fetches
+// Cache for durations to avoid repeated fetches (in-memory only)
 const durationCache = new Map<
   string,
   { durations: Record<string, string>; timestamp: number }
 >();
-const DURATION_CACHE_TTL = 1000 * 60 * 60; // 1 hour
+const DURATION_CACHE_TTL = 1000 * 60 * 60; // 1 hour in-memory cache
 
 async function fetchDurationsFromInvidious(
   channelId: string,
-  instanceUrl: string
+  instanceUrl: string,
+  videoIds: string[],
+  videoType: "regular" | "shorts" | "livestreams" = "regular"
 ): Promise<Record<string, string>> {
+  // Check persistent cache first and get list of uncached video IDs
+  const uncachedIds = await getUncachedVideoIds(channelId, videoIds);
+
+  // If all videos are cached, return the cached durations
+  if (uncachedIds.length === 0) {
+    const cached = await getCachedDurations(channelId);
+    return cached;
+  }
+
+  console.log(
+    `[RSS] ${videoType} - Found ${videoIds.length - uncachedIds.length}/${
+      videoIds.length
+    } videos in cache, fetching ${
+      uncachedIds.length
+    } from Invidious for channel ${channelId}`
+  );
+
   const durations: Record<string, string> = {};
 
-  // Check cache first
-  const cached = durationCache.get(channelId);
-  if (cached && Date.now() - cached.timestamp < DURATION_CACHE_TTL) {
-    return cached.durations;
+  // Check in-memory cache for this session
+  const inMemoryCached = durationCache.get(channelId);
+  if (
+    inMemoryCached &&
+    Date.now() - inMemoryCached.timestamp < DURATION_CACHE_TTL
+  ) {
+    // Merge in-memory cache with what we need
+    Object.assign(durations, inMemoryCached.durations);
+    const stillNeed = uncachedIds.filter((id) => !durations[id]);
+    if (stillNeed.length === 0) {
+      console.log(
+        `[RSS] ${videoType} - All ${videoIds.length} videos found in in-memory cache for channel ${channelId}`
+      );
+      return durations;
+    }
   }
 
   try {
@@ -143,6 +178,9 @@ async function fetchDurationsFromInvidious(
     }
 
     const url = `${normalizedUrl}api/v1/channels/${channelId}?fields=latestVideos`;
+    console.log(
+      `[RSS] ${videoType} - Querying Invidious instance ${instanceUrl} for ${uncachedIds.length} uncached videos from channel ${channelId}`
+    );
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
@@ -156,7 +194,9 @@ async function fetchDurationsFromInvidious(
       console.warn(
         `[RSS] Invidious API error for ${instanceUrl}: HTTP ${res.status}`
       );
-      return durations;
+      // Return cached durations even if API fails
+      const cached = await getCachedDurations(channelId);
+      return { ...cached, ...durations };
     }
 
     // Check if response is actually JSON before parsing
@@ -167,7 +207,8 @@ async function fetchDurationsFromInvidious(
           contentType || "unknown content-type"
         }`
       );
-      return durations;
+      const cached = await getCachedDurations(channelId);
+      return { ...cached, ...durations };
     }
 
     const data: any = await res.json();
@@ -194,17 +235,36 @@ async function fetchDurationsFromInvidious(
         }
       }
     }
+    console.log(
+      `[RSS] Successfully fetched ${
+        Object.keys(durations).length
+      } durations from Invidious for channel ${channelId}`
+    );
 
-    // Cache the result
-    durationCache.set(channelId, { durations, timestamp: Date.now() });
+    // Merge with cached durations
+    const finalDurations = await mergeCachedWithFresh(channelId, durations);
 
-    return durations;
+    // Also update in-memory cache
+    durationCache.set(channelId, {
+      durations: finalDurations,
+      timestamp: Date.now(),
+    });
+
+    console.log(
+      `[RSS] Fetched ${
+        Object.keys(durations).length
+      } new durations from Invidious for channel ${channelId}`
+    );
+
+    return finalDurations;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.warn(
       `[RSS] Failed to fetch durations from ${instanceUrl}: ${errorMsg}`
     );
-    return durations;
+    // Fall back to cached durations
+    const cached = await getCachedDurations(channelId);
+    return { ...cached, ...durations };
   }
 }
 
@@ -247,14 +307,27 @@ async function fetchChannelFeedByType(
   }`;
   const res = await fetch(feedUrl, { next: { revalidate: 300 } });
   if (!res.ok) {
+    // 404 for livestreams likely means the channel has no livestreams - silently return empty
+    if (res.status === 404 && type === "livestreams") {
+      return {
+        videos: [],
+        meta: {
+          channelId,
+          title: "",
+          thumbnail: undefined,
+          avatar: undefined,
+        },
+      };
+    }
     console.error("[RSS] Failed to fetch channel feed", {
+      type,
       channelId,
       feedUrl,
       status: res.status,
       statusText: res.statusText,
     });
     throw new Error(
-      `Failed to fetch feed for channel ${channelId}: ${res.status} ${res.statusText}`
+      `Failed to fetch ${type} feed for channel ${channelId}: ${res.status} ${res.statusText}`
     );
   }
   const xml = await res.text();
@@ -297,10 +370,15 @@ async function fetchChannelFeedByType(
             `[RSS] Video duration enabled but no Invidious instance URL configured`
           );
         } else {
+          // Get video IDs to check what's cached
+          const videoIds = videos.map((v) => v.id);
+
           // Create a promise that fetches durations with a max wait time
           const durationPromise = fetchDurationsFromInvidious(
             channelId,
-            invidousUrl
+            invidousUrl,
+            videoIds,
+            "regular"
           );
 
           // Wait up to 15 seconds for durations to fetch
