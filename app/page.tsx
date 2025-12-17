@@ -909,7 +909,9 @@ export default function Home() {
             {/* Page Header */}
             <div className="mb-10">
               <div className="flex items-center gap-4 mb-4">
-                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Your Feed</h2>
+                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+                  Your Feed
+                </h2>
                 <Button
                   onClick={() => refreshData(true)}
                   variant="ghost"
