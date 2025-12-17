@@ -72,6 +72,11 @@ export async function GET(req: Request) {
               if (feedSettings.enableVideos) {
                 const result = await fetchChannelFeed(current);
                 meta = result.meta;
+
+                // Update progress now that we have the channel title
+                const channelTitle = meta?.title || current;
+                updateProgress(current, channelTitle, sessionId);
+
                 const regularVideos = result.videos;
                 regularVideos.forEach((video) => {
                   const item = {
@@ -132,10 +137,6 @@ export async function GET(req: Request) {
                 }
               }
 
-              // Update progress
-              const channelTitle = meta?.title || current;
-              updateProgress(current, channelTitle, sessionId);
-
               // Send newly fetched items
               for (const item of channelItems) {
                 const itemId = `${item.id || item.videoId}`;
@@ -150,7 +151,6 @@ export async function GET(req: Request) {
                 channelId: current,
                 error: err instanceof Error ? err.message : String(err),
               });
-              updateProgress(current, `[Error] ${current}`, sessionId);
             }
           }
         };

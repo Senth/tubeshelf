@@ -173,6 +173,11 @@ export async function GET(req: Request) {
           );
           const result = await fetchChannelFeed(current);
           meta = result.meta;
+
+          // Update progress now that we have the channel title
+          const channelTitle = meta?.title || current;
+          updateProgress(current, channelTitle, sessionId);
+
           const regularVideos = result.videos;
           if (regularVideos.length > 0) {
             hasVideos = true;
@@ -285,17 +290,11 @@ export async function GET(req: Request) {
           // Even if no videos found, record current time to update the subscription
           channelsWithVideos.set(current, new Date().toISOString());
         }
-
-        // Update progress with channel info
-        const channelTitle = meta?.title || current;
-        updateProgress(current, channelTitle, sessionId);
       } catch (err) {
         console.error("[Feed] Failed to load feed for channel", {
           channelId: current,
           error: err instanceof Error ? err.message : String(err),
         });
-        // Still update progress even on error
-        updateProgress(current, `[Error] ${current}`, sessionId);
       }
     }
     console.log(
