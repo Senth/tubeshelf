@@ -147,7 +147,7 @@ export function VideoCard({
   }, [thumbnail]);
   return (
     <div
-      className="group overflow-visible rounded-lg hover:shadow-lg transition-all duration-300 bg-card border border-border"
+      className="group overflow-visible rounded-xl hover:shadow-xl transition-all duration-300 bg-card border border-border/50 hover:border-border"
       ref={menuRef}
     >
       {/* Thumbnail */}
@@ -155,7 +155,7 @@ export function VideoCard({
         href={videoUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="relative overflow-hidden bg-secondary aspect-video cursor-pointer block rounded-t-lg"
+        className="relative overflow-hidden bg-secondary aspect-video cursor-pointer block rounded-t-xl"
         onClick={(e) => {
           // Let middle-click and ctrl/cmd+click pass through naturally
           if (e.button !== 0) return;

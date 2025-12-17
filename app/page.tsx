@@ -794,7 +794,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Navigation */}
-      <nav className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-sm">
+      <nav className="sticky top-0 z-40 border-b border-border/50 bg-card/90 backdrop-blur-md shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
@@ -903,13 +903,13 @@ export default function Home() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
         {currentPage === "home" ? (
           <>
             {/* Page Header */}
-            <div className="mb-8">
+            <div className="mb-10">
               <div className="flex items-center gap-4 mb-4">
-                <h2 className="text-2xl sm:text-3xl font-bold">Your Feed</h2>
+                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Your Feed</h2>
                 <Button
                   onClick={() => refreshData(true)}
                   variant="ghost"
@@ -993,16 +993,20 @@ export default function Home() {
             ) : (
               <>
                 {/* Tabs and Controls */}
-                <div className="flex items-center justify-between mb-6 border-b border-border">
-                  <div className="flex gap-4">
+                <div className="flex items-center justify-between mb-6 border-b border-border/30">
+                  <div className="flex gap-1">
                     {settings?.enableVideos && (
                       <button
                         onClick={() => setFeedTab("videos")}
-                        className={`px-4 py-2 font-medium transition-colors ${
+                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
                           feedTab === "videos"
-                            ? "border-b-2 border-primary text-foreground"
+                            ? "text-foreground"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                          feedTab === "videos"
+                            ? "after:bg-primary"
+                            : "after:bg-transparent"
+                        } hover:after:bg-primary/50`}
                       >
                         Videos
                       </button>
@@ -1010,11 +1014,15 @@ export default function Home() {
                     {settings?.enableShorts && (
                       <button
                         onClick={() => setFeedTab("shorts")}
-                        className={`px-4 py-2 font-medium transition-colors ${
+                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
                           feedTab === "shorts"
-                            ? "border-b-2 border-primary text-foreground"
+                            ? "text-foreground"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                          feedTab === "shorts"
+                            ? "after:bg-primary"
+                            : "after:bg-transparent"
+                        } hover:after:bg-primary/50`}
                       >
                         Shorts
                       </button>
@@ -1022,11 +1030,15 @@ export default function Home() {
                     {settings?.enableLivestreams && (
                       <button
                         onClick={() => setFeedTab("livestreams")}
-                        className={`px-4 py-2 font-medium transition-colors ${
+                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
                           feedTab === "livestreams"
-                            ? "border-b-2 border-primary text-foreground"
+                            ? "text-foreground"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                          feedTab === "livestreams"
+                            ? "after:bg-primary"
+                            : "after:bg-transparent"
+                        } hover:after:bg-primary/50`}
                       >
                         Livestreams
                       </button>
@@ -1045,7 +1057,7 @@ export default function Home() {
                     <select
                       value={filterListId}
                       onChange={(e) => handleChangeFilterList(e.target.value)}
-                      className="px-3 py-1.5 text-sm bg-secondary border border-border rounded-md cursor-pointer hover:bg-secondary/80 transition-colors"
+                      className="px-3 py-1.5 text-sm bg-secondary border border-border/50 rounded-lg cursor-pointer hover:border-border transition-all duration-200 focus:border-primary focus:outline-none"
                     >
                       <option value="all">All Lists</option>
                       {subscriptionLists
@@ -1065,7 +1077,7 @@ export default function Home() {
                 {feedTab === "videos" && (
                   <>
                     {loading ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {Array.from({ length: 12 }).map((_, i) => (
                           <VideoCardSkeleton key={i} />
                         ))}
@@ -1085,7 +1097,7 @@ export default function Home() {
                         </p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {filteredVideos.map((video) => (
                           <VideoCard
                             key={video.id}
@@ -1120,7 +1132,7 @@ export default function Home() {
                 {feedTab === "shorts" && (
                   <>
                     {loading ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {Array.from({ length: 15 }).map((_, i) => (
                           <VideoCardSkeleton key={i} />
                         ))}
@@ -1138,7 +1150,7 @@ export default function Home() {
                         </p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {filteredShorts.map((video) => (
                           <VideoCard
                             key={video.id}
