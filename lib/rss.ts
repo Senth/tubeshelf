@@ -281,55 +281,60 @@ async function fetchChannelFeedByType(
     })
     .filter(Boolean) as FeedVideo[];
 
-  // Fetch durations from Invidious if enabled
+  // Fetch durations from Invidious if enabled (only for regular videos, not shorts or livestreams)
   // Uses a timeout to prevent blocking the response too long
-  try {
-    const settings = await readSettings();
+  if (type === "videos") {
+    try {
+      const settings = await readSettings();
 
-    // Only fetch durations if explicitly enabled by user
-    if (settings.enableVideoDuration) {
-      const invidousUrl = settings.invidousInstance?.trim();
+      // Only fetch durations if explicitly enabled by user
+      if (settings.enableVideoDuration) {
+        const invidousUrl = settings.invidousInstance?.trim();
 
-      // Check if instance URL is configured
-      if (!invidousUrl) {
-        console.warn(
-          `[RSS] Video duration enabled but no Invidious instance URL configured`
-        );
-      } else {
-        // Create a promise that fetches durations with a max wait time
-        const durationPromise = fetchDurationsFromInvidious(
-          channelId,
-          invidousUrl
-        );
+        // Check if instance URL is configured
+        if (!invidousUrl) {
+          console.warn(
+            `[RSS] Video duration enabled but no Invidious instance URL configured`
+          );
+        } else {
+          // Create a promise that fetches durations with a max wait time
+          const durationPromise = fetchDurationsFromInvidious(
+            channelId,
+            invidousUrl
+          );
 
-        // Wait up to 15 seconds for durations to fetch
-        const timeoutPromise = new Promise<Record<string, string>>((resolve) =>
-          setTimeout(() => resolve({}), 15000)
-        );
+          // Wait up to 15 seconds for durations to fetch
+          const timeoutPromise = new Promise<Record<string, string>>(
+            (resolve) => setTimeout(() => resolve({}), 15000)
+          );
 
-        const durations = await Promise.race([durationPromise, timeoutPromise]);
+          const durations = await Promise.race([
+            durationPromise,
+            timeoutPromise,
+          ]);
 
-        // Update videos with durations
-        for (const video of videos) {
-          if (durations[video.id]) {
-            video.duration = durations[video.id];
+          // Update videos with durations
+          for (const video of videos) {
+            if (durations[video.id]) {
+              video.duration = durations[video.id];
+            }
+          }
+
+          const withDuration = videos.filter((v) => v.duration).length;
+          if (withDuration === 0) {
+            console.warn(
+              `[RSS] No durations retrieved from ${invidousUrl} for channel ${channelId}`
+            );
           }
         }
-
-        const withDuration = videos.filter((v) => v.duration).length;
-        if (withDuration === 0) {
-          console.warn(
-            `[RSS] No durations retrieved from ${invidousUrl} for channel ${channelId}`
-          );
-        }
       }
+    } catch (err) {
+      // Silently fail - durations are optional
+      console.debug(
+        `[RSS] Error fetching durations:`,
+        err instanceof Error ? err.message : String(err)
+      );
     }
-  } catch (err) {
-    // Silently fail - durations are optional
-    console.debug(
-      `[RSS] Error fetching durations:`,
-      err instanceof Error ? err.message : String(err)
-    );
   }
 
   const channelTitle =

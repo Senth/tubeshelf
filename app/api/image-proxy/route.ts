@@ -15,6 +15,7 @@ export async function GET(req: Request) {
     // Validate that the URL is from YouTube's CDN
     if (
       !imageUrl.includes("yt3.googleusercontent.com") &&
+      !imageUrl.includes("ytimg.com") &&
       !imageUrl.includes("youtube.com")
     ) {
       return NextResponse.json(

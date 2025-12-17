@@ -153,6 +153,13 @@ export default function Home() {
         const decoder = new TextDecoder();
 
         if (reader) {
+          // Reset current lists to avoid duplicate counts on refresh
+          setVideos([]);
+          setShorts([]);
+          setFilteredVideos([]);
+          setFilteredShorts([]);
+          setFilteredLivestreams([]);
+
           let buffer = "";
           const videoIds = new Set<string>();
           let videoCount = 0;
@@ -1029,14 +1036,10 @@ export default function Home() {
                             title={video.title}
                             channel={video.channel}
                             thumbnail={video.thumbnail}
-                            duration={video.duration}
                             uploadedAt={video.uploadedAt}
                             views={video.views}
                             watched={watchedVideos.has(video.id)}
                             videoUrl={video.url}
-                            showDurationPlaceholder={
-                              settings?.enableVideoDuration
-                            }
                             onWatch={() => handleWatchVideo(video.id)}
                             onWatchLater={() => handleAddToWatchLater(video)}
                             onMarkWatched={() => handleToggleWatched(video.id)}
@@ -1082,14 +1085,10 @@ export default function Home() {
                             title={video.title}
                             channel={video.channel}
                             thumbnail={video.thumbnail}
-                            duration={video.duration}
                             uploadedAt={video.uploadedAt}
                             views={video.views}
                             watched={watchedVideos.has(video.id)}
                             videoUrl={video.url}
-                            showDurationPlaceholder={
-                              settings?.enableVideoDuration
-                            }
                             onWatch={() => handleWatchVideo(video.id)}
                             onWatchLater={() => handleAddToWatchLater(video)}
                             onMarkWatched={() => handleToggleWatched(video.id)}
