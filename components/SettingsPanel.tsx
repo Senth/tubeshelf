@@ -285,69 +285,6 @@ export function SettingsPanel({
                 </div>
               </div>
 
-              {/* Video Duration Settings */}
-              <div className="space-y-3">
-                <label className="block text-sm font-medium">
-                  Video Duration
-                </label>
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-4 p-3 bg-secondary/50 rounded-lg">
-                    <div className="flex-1">
-                      <label className="text-sm font-medium cursor-pointer block">
-                        Show Video Duration
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        Fetches duration from Invidious API
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        ⚠️ First fetch may be slow (depends on channel count),
-                        but subsequent refreshes will be much faster.
-                      </p>
-                    </div>
-                    <div className="flex-shrink-0">
-                      <Switch
-                        checked={local.enableVideoDuration}
-                        onCheckedChange={(checked) =>
-                          setLocal({ ...local, enableVideoDuration: checked })
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  {local.enableVideoDuration && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        Invidious Instance URL
-                      </label>
-                      <input
-                        type="text"
-                        value={local.invidousInstance || ""}
-                        onChange={(e) =>
-                          setLocal({
-                            ...local,
-                            invidousInstance: e.target.value,
-                          })
-                        }
-                        placeholder="https://example.com/"
-                        className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Enter an Invidious instance URL with API support.{" "}
-                        <a
-                          href="https://api.invidious.io/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          Check available instances
-                        </a>{" "}
-                        (look for api: ✔)
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               {/* Info Section */}

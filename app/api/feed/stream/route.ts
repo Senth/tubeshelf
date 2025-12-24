@@ -3,7 +3,7 @@ import {
   fetchChannelFeed,
   fetchChannelFeedShorts,
   fetchChannelFeedLivestreams,
-} from "@/lib/rss";
+} from "@/lib/videoFetcher";
 import { readLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
@@ -13,13 +13,24 @@ const CONCURRENCY = 4;
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const forceRefresh = url.searchParams.get("refresh") === "true";
+  const requestId = Math.random().toString(36).substring(7);
+  const timestamp = new Date().toISOString();
+
+  console.log(`[Stream Server] ========== NEW STREAM REQUEST ==========`);
+  console.log(`[Stream Server] Request ID: ${requestId}`);
+  console.log(`[Stream Server] Timestamp: ${timestamp}`);
+  console.log(`[Stream Server] forceRefresh: ${forceRefresh}`);
+  console.log(`[Stream Server] Full URL: ${req.url}`);
+  console.log(
+    `[Stream Server] Headers:`,
+    Object.fromEntries(req.headers.entries())
+  );
 
   // Get current settings
   let currentSettings = {
     enableVideos: true,
     enableShorts: true,
     enableLivestreams: true,
-    enableVideoDuration: false,
   };
   try {
     const settingsData = await readSettings();
@@ -27,7 +38,6 @@ export async function GET(req: Request) {
       enableVideos: settingsData.enableVideos,
       enableShorts: settingsData.enableShorts,
       enableLivestreams: settingsData.enableLivestreams,
-      enableVideoDuration: settingsData.enableVideoDuration,
     };
   } catch {
     // Use defaults
@@ -57,9 +67,16 @@ export async function GET(req: Request) {
 
   const customReadable = new ReadableStream({
     async start(controller) {
+      console.log(
+        `[Stream Server] ${requestId} - Starting stream processing with ${channelIds.length} channels`
+      );
       try {
         const queue = [...channelIds];
         const feedSettings = currentSettings;
+        console.log(
+          `[Stream Server] ${requestId} - Feed settings:`,
+          feedSettings
+        );
 
         const worker = async () => {
           while (queue.length > 0) {
@@ -137,7 +154,13 @@ export async function GET(req: Request) {
                 }
               }
 
-              // Send newly fetched items
+              // Send newly fetched items sorted by publish date (newest first)
+              channelItems.sort((a, b) => {
+                const dateA = new Date(a.publishedAt || 0).getTime();
+                const dateB = new Date(b.publishedAt || 0).getTime();
+                return dateB - dateA; // Descending order (newest first)
+              });
+
               for (const item of channelItems) {
                 const itemId = `${item.id || item.videoId}`;
                 if (!sentItems.has(itemId)) {
@@ -156,9 +179,17 @@ export async function GET(req: Request) {
         };
 
         await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        console.log(
+          `[Stream Server] ${requestId} - Stream completed, sent ${
+            sentItems.size
+          } unique items at ${new Date().toISOString()}`
+        );
+        console.log(
+          `[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`
+        );
         controller.close();
       } catch (error) {
-        console.error("[Feed Stream] Error:", error);
+        console.error("[Stream] Error:", error);
         controller.close();
       }
     },

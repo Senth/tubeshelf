@@ -16,7 +16,7 @@ fi
 mkdir -p /app/data /app/.next/cache
 [ -f /app/data/subscriptions.json ] || echo "[]" > /app/data/subscriptions.json
 [ -f /app/data/watchedVideos.json ] || echo "[]" > /app/data/watchedVideos.json
-[ -f /app/data/userConfig.json ] || echo '{"hideWatched":false}' > /app/data/userConfig.json
+[ -f /app/data/userConfig.json ] || echo '{"hideWatched":false, "hideMemberOnly": false, "filterListId": "all"}' > /app/data/userConfig.json
 
 # Fix ownership on bind mounts and cache
 chown -R "$PUID":"$PGID" /app/data || true

@@ -2,6 +2,16 @@ import React, { useState, useRef, useEffect } from "react";
 import { Clock, Eye, MoreVertical, Check, Share2 } from "lucide-react";
 import { Button } from "./ui/button";
 
+function formatViewCount(views: number): string {
+  if (views >= 1000000) {
+    return (views / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+  }
+  if (views >= 1000) {
+    return (views / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  }
+  return views.toString();
+}
+
 function formatTimeAgo(dateString: string): string {
   // Parse ISO 8601 timestamp properly
   const date = new Date(dateString);
@@ -174,10 +184,12 @@ export function VideoCard({
           alt=""
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           draggable="false"
+          loading="lazy"
+          decoding="async"
           onLoad={(e) => {
             setShowSkeleton(false);
           }}
-          onError={() => {
+          onError={(e) => {
             setShowSkeleton(false);
           }}
         />
@@ -265,7 +277,7 @@ export function VideoCard({
         </p>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2 line-clamp-1">
-          {views && <span>{views.toLocaleString()} views</span>}
+          {views && <span>{formatViewCount(views)} views</span>}
           {uploadedAt && <span>•</span>}
           {uploadedAt && <span>{formatTimeAgo(uploadedAt)}</span>}
         </div>

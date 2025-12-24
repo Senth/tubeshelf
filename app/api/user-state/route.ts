@@ -16,6 +16,8 @@ export async function POST(req: Request) {
     watchedVideos: Array.isArray(body.watchedVideos) ? body.watchedVideos : [],
     hideWatched:
       typeof body.hideWatched === "boolean" ? body.hideWatched : false,
+    hideMemberOnly:
+      typeof body.hideMemberOnly === "boolean" ? body.hideMemberOnly : false,
     filterListId:
       typeof body.filterListId === "string" && body.filterListId.length > 0
         ? body.filterListId

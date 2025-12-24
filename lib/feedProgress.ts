@@ -24,6 +24,9 @@ export function initProgress(total: number) {
   progress.sessionId = `${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+  console.log(
+    `[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`
+  );
   notifySubscribers();
 }
 
@@ -34,10 +37,16 @@ export function updateProgress(
 ) {
   // Ignore updates from previous sessions
   if (sessionId && progress.sessionId && sessionId !== progress.sessionId) {
+    console.log(
+      `[FeedProgress] Ignoring update from old session: ${sessionId}`
+    );
     return;
   }
   // Ignore updates if progress is not initialized
-  if (progress.total <= 0) return;
+  if (progress.total <= 0) {
+    console.log(`[FeedProgress] Progress not initialized, ignoring update`);
+    return;
+  }
   // If already completed, keep it capped and ignore further increments
   if (progress.completed >= progress.total) {
     progress.completed = progress.total;
@@ -49,6 +58,9 @@ export function updateProgress(
   }
   progress.currentChannel = channelId;
   progress.currentChannelTitle = channelTitle;
+  console.log(
+    `[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`
+  );
   notifySubscribers();
 }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveChannelId, fetchChannelFeed } from "@/lib/rss";
+import { resolveChannelId, fetchChannelFeed } from "@/lib/videoFetcher";
 import {
   readSubscriptions,
   writeSubscriptions,
@@ -29,10 +29,7 @@ export async function POST(req: Request) {
 
   const existing = await readSubscriptions();
   if (existing.some((s) => s.channelId === channelId)) {
-    return NextResponse.json(
-      { error: "Already subscribed" },
-      { status: 409 }
-    );
+    return NextResponse.json({ error: "Already subscribed" }, { status: 409 });
   }
 
   try {
@@ -69,4 +66,3 @@ export async function DELETE(req: Request) {
   await writeSubscriptions(updated);
   return NextResponse.json({ ok: true });
 }
-

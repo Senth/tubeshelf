@@ -7,8 +7,7 @@ import {
   clearAllSubscriptions,
   moveSubscription,
 } from "@/lib/subscriptionListStore";
-import { fetchChannelFeed } from "@/lib/rss";
-import { resolveChannelId } from "@/lib/rss";
+import { fetchChannelFeed, resolveChannelId } from "@/lib/videoFetcher";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -48,6 +47,7 @@ export async function POST(req: Request) {
       title: meta.title || channelId,
       url: `https://www.youtube.com/channel/${channelId}`,
       thumbnail: meta.thumbnail,
+      subscriberCount: meta.subscriberCount,
       addedAt: new Date().toISOString(),
     };
 

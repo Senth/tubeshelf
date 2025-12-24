@@ -13,6 +13,7 @@ import {
   Zap,
   RadioTower,
 } from "lucide-react";
+import { feedManager } from "@/lib/feedManager";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
@@ -54,14 +55,32 @@ interface WatchLaterItem {
   addedAt: Date;
 }
 
+// Helper: compare arrays by IDs
+function arraysHaveSameIds(arr1?: Video[], arr2?: Video[]) {
+  if (arr1 === arr2) return true;
+  if (!arr1 || !arr2) return false;
+  if (arr1.length !== arr2.length) return false;
+  const s = new Set(arr1.map((v) => v.id));
+  for (const v of arr2) if (!s.has(v.id)) return false;
+  return true;
+}
+
 export default function Home() {
   const { theme } = useContext(ThemeContext);
   const [mounted, setMounted] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  const componentId = useRef(Math.random().toString(36).substring(7));
   const [feedTab, setFeedTab] = useState<FeedTab>("videos");
   const [videos, setVideos] = useState<Video[]>([]);
   const [shorts, setShorts] = useState<Video[]>([]);
   const [livestreams, setLivestreams] = useState<Video[]>([]);
+  // Refs to keep current arrays for quick comparison in subscribe
+  const videosRef = useRef<Video[]>([]);
+  const shortsRef = useRef<Video[]>([]);
+  const livestreamsRef = useRef<Video[]>([]);
+  const loadingRef = useRef<boolean>(true);
+  const fetchingRef = useRef<boolean>(false);
+  const errorRef = useRef<string | null>(null);
   const [watchLater, setWatchLater] = useState<WatchLaterItem[]>([]);
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
   const [showSubscriptions, setShowSubscriptions] = useState(false);
@@ -73,6 +92,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hideWatched, setHideWatched] = useState(false);
+  const [hideMemberOnly, setHideMemberOnly] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [subscriptionLists, setSubscriptionLists] = useState<
     SubscriptionList[]
@@ -87,7 +107,7 @@ export default function Home() {
     currentChannelTitle?: string;
   } | null>(null);
   const refreshingRef = useRef(false);
-  const initialLoadRef = useRef(false);
+  const initializedRef = useRef(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
 
@@ -121,21 +141,12 @@ export default function Home() {
   }, [showLoadingProgress]);
 
   const refreshData = async (forceRefresh = false) => {
-    // Prevent concurrent or duplicate refreshes (e.g., React Strict Mode)
-    if (refreshingRef.current) return;
-    refreshingRef.current = true;
-
-    // Only show full loading state on initial load (when there are no videos yet)
-    const isInitialLoad = videos.length === 0;
-    if (isInitialLoad) {
-      setLoading(true);
-    }
-
     setError(null);
     setShowLoadingProgress(true);
     setIsRefreshing(true);
+
     try {
-      // Fetch lists first and independently
+      // Fetch lists first
       const listsRes = await fetch("/api/subscription-lists");
       const listsData = await listsRes.json();
       setSubscriptionLists(listsData.lists || []);
@@ -146,158 +157,18 @@ export default function Home() {
         return prevId && listStillExists ? prevId : "default";
       });
 
-      // Then fetch videos with streaming
-      try {
-        const response = await fetch(
-          `/api/feed/stream?refresh=${forceRefresh}`
-        );
-
-        console.log("[Stream] Starting stream...");
-        if (!response.ok) throw new Error("Failed to fetch videos stream");
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-
-        if (reader) {
-          // Reset current lists to avoid duplicate counts on refresh
-          setVideos([]);
-          setShorts([]);
-          setLivestreams([]);
-          setFilteredVideos([]);
-          setFilteredShorts([]);
-          setFilteredLivestreams([]);
-
-          let buffer = "";
-          const videoIds = new Set<string>();
-          let videoCount = 0;
-          let hasReceivedFirstVideo = false;
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              break;
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                try {
-                  const rawVideo = JSON.parse(line.slice(6));
-                  const videoId = rawVideo.id || rawVideo.videoId;
-
-                  // Transform raw API response to Video interface
-                  const video = {
-                    id: videoId,
-                    title: rawVideo.title || "",
-                    channel: rawVideo.channelTitle || "Unknown",
-                    channelId: rawVideo.channelId || "",
-                    thumbnail:
-                      rawVideo.thumbnail ||
-                      (videoId
-                        ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-                        : "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400&h=225&fit=crop"),
-                    duration: rawVideo.duration || "—",
-                    uploadedAt:
-                      rawVideo.publishedAt || new Date().toISOString(),
-                    views: rawVideo.viewCount || rawVideo.views,
-                    isShort: rawVideo.isShort || false,
-                    isLivestream: rawVideo.isLivestream || false,
-                    url:
-                      rawVideo.url ||
-                      (videoId
-                        ? `https://www.youtube.com/watch?v=${videoId}`
-                        : ""),
-                  };
-
-                  if (!videoIds.has(videoId)) {
-                    videoIds.add(videoId);
-                    videoCount++;
-
-                    // Hide loading overlay once first video arrives
-                    if (!hasReceivedFirstVideo) {
-                      setLoading(false);
-                      hasReceivedFirstVideo = true;
-                    }
-
-                    // Update state immediately as videos arrive
-                    if (!video.isShort && !video.isLivestream) {
-                      setVideos((prev) => {
-                        const updated = [...prev, video];
-                        return updated;
-                      });
-                      setFilteredVideos((prev) => {
-                        const updated = [...prev, video];
-                        return updated;
-                      });
-                    } else if (video.isShort) {
-                      setShorts((prev) => {
-                        const updated = [...prev, video];
-                        return updated;
-                      });
-                      setFilteredShorts((prev) => {
-                        const updated = [...prev, video];
-                        return updated;
-                      });
-                    } else if (video.isLivestream) {
-                      console.log("[Stream] Adding livestream:", videoId);
-                      setLivestreams((prev) => {
-                        const updated = [...prev, video];
-                        console.log(
-                          "[Stream] Livestreams state now has",
-                          updated.length,
-                          "items"
-                        );
-                        return updated;
-                      });
-                    }
-                  }
-                } catch (e) {
-                  console.error(
-                    "[Stream] Failed to parse line:",
-                    e,
-                    "line:",
-                    line
-                  );
-                  // Continue if line is not valid JSON
-                }
-              }
-            }
-          }
-        }
-      } catch (vidErr) {
-        console.error("Failed to fetch videos:", vidErr);
-        // Fall back to regular feed endpoint
-        console.log("[Stream] Falling back to regular /api/feed endpoint");
-        try {
-          const vids = await getVideos(forceRefresh);
-          console.log("[Fallback] Received", vids.length, "videos");
-          setVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
-          setShorts(vids.filter((v) => v.isShort));
-          setLivestreams(vids.filter((v) => v.isLivestream));
-          setFilteredVideos(vids.filter((v) => !v.isShort && !v.isLivestream));
-          setFilteredShorts(vids.filter((v) => v.isShort));
-        } catch (fallbackErr) {
-          console.error("Fallback fetch also failed:", fallbackErr);
-        }
-      }
+      // Refresh feed via singleton manager
+      await feedManager.refresh();
     } catch (err: any) {
-      console.error("Failed to load lists:", err);
+      console.error("Failed to refresh:", err);
       setError(err?.message || "Failed to load data");
     } finally {
-      const isInitialLoad = videos.length === 0;
-      if (isInitialLoad) {
-        setLoading(false);
-      }
       setShowLoadingProgress(false);
       setIsRefreshing(false);
       refreshingRef.current = false;
     }
   };
 
-  // Load user state from server
   const loadUserState = async () => {
     try {
       const res = await fetch("/api/user-state");
@@ -305,6 +176,7 @@ export default function Home() {
         const data = await res.json();
         setWatchedVideos(new Set(data.watchedVideos || []));
         setHideWatched(data.hideWatched || false);
+        setHideMemberOnly(data.hideMemberOnly || false);
         if (typeof data.filterListId === "string") {
           setFilterListId(data.filterListId);
         }
@@ -331,6 +203,7 @@ export default function Home() {
         body: JSON.stringify({
           watchedVideos: Array.from(watchedVideos),
           hideWatched,
+          hideMemberOnly,
           filterListId,
           watchLater: watchLater.map((item) => ({
             ...item,
@@ -361,11 +234,43 @@ export default function Home() {
     }
   };
 
-  // Initialize data
+  // Initialize data on mount using singleton feed manager
   useEffect(() => {
-    // Ref used to suppress duplicate init in dev Strict Mode
-    refreshingRef.current = false;
+    // Subscribe to feed manager
+    const unsubscribe = feedManager.subscribe((feedData) => {
+      // Only update main lists if content changed to avoid re-renders
+      if (!arraysHaveSameIds(videosRef.current, feedData.videos)) {
+        setVideos(feedData.videos);
+        videosRef.current = feedData.videos;
+      }
+      if (!arraysHaveSameIds(shortsRef.current, feedData.shorts)) {
+        setShorts(feedData.shorts);
+        shortsRef.current = feedData.shorts;
+      }
+      if (!arraysHaveSameIds(livestreamsRef.current, feedData.livestreams)) {
+        setLivestreams(feedData.livestreams);
+        livestreamsRef.current = feedData.livestreams;
+      }
 
+      // Do NOT set filtered state here; let the debounced filter effect compute it.
+      // Only update loading/fetching/error when values actually change
+      if (loadingRef.current !== feedData.loading) {
+        setLoading(feedData.loading);
+        loadingRef.current = feedData.loading;
+      }
+
+      if (fetchingRef.current !== feedData.fetching) {
+        setShowLoadingProgress(feedData.fetching);
+        fetchingRef.current = feedData.fetching;
+      }
+
+      if (errorRef.current !== feedData.error) {
+        setError(feedData.error);
+        errorRef.current = feedData.error;
+      }
+    });
+
+    // Load other settings
     const init = async () => {
       try {
         const appSettings = await getSettings();
@@ -375,33 +280,51 @@ export default function Home() {
         if (!appSettings.hasCompletedWelcome) {
           setShowWelcomeWizard(true);
         }
+
+        // Load subscription lists
+        try {
+          const listsRes = await fetch("/api/subscription-lists");
+          if (listsRes.ok) {
+            const listsData = await listsRes.json();
+            setSubscriptionLists(listsData.lists || []);
+          }
+        } catch (e) {
+          console.error("Failed to load subscription lists:", e);
+        }
+
+        // Load hideWatched preference from localStorage
+        const savedHideWatched = localStorage.getItem("hideWatched");
+        if (savedHideWatched !== null) {
+          setHideWatched(JSON.parse(savedHideWatched));
+        }
+
+        // Load hideMemberOnly preference from localStorage
+        const savedHideMemberOnly = localStorage.getItem("hideMemberOnly");
+        if (savedHideMemberOnly !== null) {
+          setHideMemberOnly(JSON.parse(savedHideMemberOnly));
+        }
+
+        // Load filterListId preference from localStorage
+        const savedFilterListId = localStorage.getItem("filterListId");
+        if (savedFilterListId !== null) {
+          try {
+            const parsed = JSON.parse(savedFilterListId);
+            if (typeof parsed === "string") {
+              setFilterListId((prev) => (prev ? prev : parsed));
+            }
+          } catch {}
+        }
+
+        await loadUserState();
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
     };
 
-    refreshData();
-    loadUserState();
     init();
 
-    // Load hideWatched preference from localStorage
-    const savedHideWatched = localStorage.getItem("hideWatched");
-    if (savedHideWatched !== null) {
-      setHideWatched(JSON.parse(savedHideWatched));
-    }
-
-    // Load filterListId preference from localStorage
-    const savedFilterListId = localStorage.getItem("filterListId");
-    if (savedFilterListId !== null) {
-      try {
-        const parsed = JSON.parse(savedFilterListId);
-        if (typeof parsed === "string") {
-          // Only apply local value if server hasn't set a different one yet
-          // This avoids overwriting server-persisted selection on reload.
-          setFilterListId((prev) => (prev ? prev : parsed));
-        }
-      } catch {}
-    }
+    // Don't cleanup subscription - let it persist across remounts
+    // Only cleanup on actual page navigation
   }, []);
 
   // Auto-redirect to first available tab if current tab is disabled
@@ -432,15 +355,25 @@ export default function Home() {
 
   // Save user state when it changes
   useEffect(() => {
-    if (watchedVideos.size > 0 || hideWatched || watchLater.length > 0) {
+    if (
+      watchedVideos.size > 0 ||
+      hideWatched ||
+      hideMemberOnly ||
+      watchLater.length > 0
+    ) {
       saveUserState();
     }
-  }, [watchedVideos, hideWatched, filterListId, watchLater]);
+  }, [watchedVideos, hideWatched, hideMemberOnly, filterListId, watchLater]);
 
   // Save hideWatched preference to localStorage
   useEffect(() => {
     localStorage.setItem("hideWatched", JSON.stringify(hideWatched));
   }, [hideWatched]);
+
+  // Save hideMemberOnly preference to localStorage
+  useEffect(() => {
+    localStorage.setItem("hideMemberOnly", JSON.stringify(hideMemberOnly));
+  }, [hideMemberOnly]);
 
   // Persist filterListId to localStorage
   useEffect(() => {
@@ -461,77 +394,103 @@ export default function Home() {
 
   // Handle search and filter
   useEffect(() => {
-    const term = searchQuery.trim().toLowerCase();
-    let vids = videos;
-    let shts = shorts;
-    let liveStreams = livestreams;
+    // Debounce filtering and sorting to avoid race conditions when
+    // subscription lists and videos update in quick succession.
+    const timer = setTimeout(() => {
+      const term = searchQuery.trim().toLowerCase();
+      let vids = videos;
+      let shts = shorts;
+      let liveStreams = livestreams;
 
-    // Filter by subscription list
-    if (filterListId !== "all") {
-      const selectedList = subscriptionLists.find((l) => l.id === filterListId);
-      if (selectedList) {
-        const channelIds = new Set(
-          selectedList.subscriptions.map((s) => s.channelId)
+      // Filter by subscription list
+      if (filterListId !== "all") {
+        const selectedList = subscriptionLists.find(
+          (l) => l.id === filterListId
         );
-        vids = vids.filter((v) => channelIds.has(v.channelId));
-        shts = shts.filter((v) => channelIds.has(v.channelId));
-        liveStreams = liveStreams.filter((v) => channelIds.has(v.channelId));
+        if (selectedList) {
+          const channelIds = new Set(
+            selectedList.subscriptions.map((s) => s.channelId)
+          );
+          vids = vids.filter((v) => channelIds.has(v.channelId));
+          shts = shts.filter((v) => channelIds.has(v.channelId));
+          liveStreams = liveStreams.filter((v) => channelIds.has(v.channelId));
+        } else if (subscriptionLists.length > 0) {
+          // List ID is set but list not found, and lists are loaded - show nothing
+          vids = [];
+          shts = [];
+          liveStreams = [];
+        }
+        // If subscriptionLists is still empty (loading), skip filtering and show all videos
       }
-    }
 
-    // Filter by search term
-    if (term) {
-      vids = vids.filter(
-        (v) =>
-          v.title.toLowerCase().includes(term) ||
-          v.channel.toLowerCase().includes(term)
-      );
-      shts = shts.filter(
-        (v) =>
-          v.title.toLowerCase().includes(term) ||
-          v.channel.toLowerCase().includes(term)
-      );
-      liveStreams = liveStreams.filter(
-        (v) =>
-          v.title.toLowerCase().includes(term) ||
-          v.channel.toLowerCase().includes(term)
-      );
-    }
+      // Filter by search term
+      if (term) {
+        vids = vids.filter(
+          (v) =>
+            v.title.toLowerCase().includes(term) ||
+            v.channel.toLowerCase().includes(term)
+        );
+        shts = shts.filter(
+          (v) =>
+            v.title.toLowerCase().includes(term) ||
+            v.channel.toLowerCase().includes(term)
+        );
+        liveStreams = liveStreams.filter(
+          (v) =>
+            v.title.toLowerCase().includes(term) ||
+            v.channel.toLowerCase().includes(term)
+        );
+      }
 
-    // Filter out watched videos if hideWatched is true
-    if (hideWatched) {
-      vids = vids.filter((v) => !watchedVideos.has(v.id));
-      shts = shts.filter((v) => !watchedVideos.has(v.id));
-      liveStreams = liveStreams.filter((v) => !watchedVideos.has(v.id));
-    }
+      // Filter out watched videos if hideWatched is true
+      if (hideWatched) {
+        vids = vids.filter((v) => !watchedVideos.has(v.id));
+        shts = shts.filter((v) => !watchedVideos.has(v.id));
+        liveStreams = liveStreams.filter((v) => !watchedVideos.has(v.id));
+      }
 
-    // Sort by date (newest first by default, oldest first if setting is "oldest")
-    const sortByDate = (videos: any[]) => {
-      return [...videos].sort((a, b) => {
-        const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
-        const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
-        // Newest first by default
-        const comparison = dateB - dateA;
-        // Reverse if oldest first is selected
-        return settings?.defaultSortOrder === "oldest"
-          ? -comparison
-          : comparison;
-      });
-    };
+      // Filter out member-only videos if requested
+      if (hideMemberOnly) {
+        vids = vids.filter((v) => !v.isMemberOnly);
+        shts = shts.filter((v) => !v.isMemberOnly);
+        liveStreams = liveStreams.filter((v) => !v.isMemberOnly);
+      }
 
-    vids = sortByDate(vids);
-    shts = sortByDate(shts);
-    liveStreams = sortByDate(liveStreams);
+      // Sort by date (newest first by default, oldest first if setting is "oldest")
+      const sortByDate = (videos: any[]) => {
+        return [...videos].sort((a, b) => {
+          const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+          const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+          // Newest first by default
+          const comparison = dateB - dateA;
+          // If dates are equal, use video ID as stable tie-breaker
+          if (comparison === 0) {
+            return a.id.localeCompare(b.id);
+          }
+          // Reverse if oldest first is selected
+          return settings?.defaultSortOrder === "oldest"
+            ? -comparison
+            : comparison;
+        });
+      };
 
-    setFilteredVideos(vids);
-    setFilteredShorts(shts);
-    setFilteredLivestreams(liveStreams);
+      vids = sortByDate(vids);
+      shts = sortByDate(shts);
+      liveStreams = sortByDate(liveStreams);
+
+      setFilteredVideos(vids);
+      setFilteredShorts(shts);
+      setFilteredLivestreams(liveStreams);
+    }, 200);
+
+    return () => clearTimeout(timer);
   }, [
     searchQuery,
     videos,
     shorts,
     livestreams,
     hideWatched,
+    hideMemberOnly,
     watchedVideos,
     settings?.defaultSortOrder,
     filterListId,
@@ -584,20 +543,16 @@ export default function Home() {
 
   const handleSaveSettings = async (updates: Partial<typeof settings>) => {
     try {
-      const durationSettingChanged =
-        updates.enableVideoDuration !== undefined &&
-        updates.enableVideoDuration !== settings?.enableVideoDuration;
-
       await updateSettings(updates);
       const freshSettings = await getSettings();
       setSettings(freshSettings);
 
-      // If content filter settings or duration settings changed, refresh feed data
+      // If content filter settings changed, refresh feed data
       const contentFilterChanged =
         updates.enableShorts !== undefined ||
         updates.enableLivestreams !== undefined;
 
-      if (contentFilterChanged || durationSettingChanged) {
+      if (contentFilterChanged) {
         // Close settings panel before refresh to show loading bar
         setShowSettings(false);
         await refreshData(true); // Force refresh to bypass cache
@@ -734,10 +689,8 @@ export default function Home() {
       // Apply wizard settings (including hasCompletedWelcome flag)
       const updates: Partial<typeof settings> = {
         enableVideos: options.enableVideos,
-        invidousInstance: options.invidousInstance,
         enableShorts: options.enableShorts,
         enableLivestreams: options.enableLivestreams,
-        enableVideoDuration: options.invidousInstance ? true : false,
         hasCompletedWelcome: true,
       };
 
@@ -1099,33 +1052,38 @@ export default function Home() {
                         </p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {filteredVideos.map((video) => (
-                          <VideoCard
-                            key={video.id}
-                            id={video.id}
-                            title={video.title}
-                            channel={video.channel}
-                            thumbnail={video.thumbnail}
-                            duration={video.duration}
-                            uploadedAt={video.uploadedAt}
-                            views={video.views}
-                            watched={watchedVideos.has(video.id)}
-                            videoUrl={video.url}
-                            showDurationPlaceholder={
-                              settings?.enableVideoDuration
-                            }
-                            onWatch={() => handleWatchVideo(video.id)}
-                            onWatchLater={() => handleAddToWatchLater(video)}
-                            onMarkWatched={() => handleToggleWatched(video.id)}
-                            onChannelClick={(channelName) =>
-                              setSearchQuery(
-                                searchQuery === channelName ? "" : channelName
-                              )
-                            }
-                          />
-                        ))}
-                      </div>
+                      <>
+                        {console.log(
+                          `Rendering ${filteredVideos.length} video cards`
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                          {filteredVideos.map((video) => (
+                            <VideoCard
+                              key={video.id}
+                              id={video.id}
+                              title={video.title}
+                              channel={video.channel}
+                              thumbnail={video.thumbnail}
+                              duration={video.duration}
+                              uploadedAt={video.uploadedAt}
+                              views={video.views}
+                              watched={watchedVideos.has(video.id)}
+                              videoUrl={video.url}
+                              showDurationPlaceholder={true}
+                              onWatch={() => handleWatchVideo(video.id)}
+                              onWatchLater={() => handleAddToWatchLater(video)}
+                              onMarkWatched={() =>
+                                handleToggleWatched(video.id)
+                              }
+                              onChannelClick={(channelName) =>
+                                setSearchQuery(
+                                  searchQuery === channelName ? "" : channelName
+                                )
+                              }
+                            />
+                          ))}
+                        </div>
+                      </>
                     )}
                   </>
                 )}

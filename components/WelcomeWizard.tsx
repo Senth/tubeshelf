@@ -19,7 +19,6 @@ interface WelcomeWizardProps {
 }
 
 export interface WelcomeOptions {
-  invidousInstance: string;
   enableVideos: boolean;
   enableShorts: boolean;
   enableLivestreams: boolean;
@@ -39,7 +38,6 @@ export function WelcomeWizard({
   const [importSuccess, setImportSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [options, setOptions] = useState<WelcomeOptions>({
-    invidousInstance: "",
     enableVideos: true,
     enableShorts: true,
     enableLivestreams: true,
@@ -233,50 +231,6 @@ export function WelcomeWizard({
           },
         ]
       : []),
-    {
-      title: "Video Duration (Optional)",
-      description: "Configure video duration fetching",
-      content: (
-        <div className="space-y-4">
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              First fetch may take longer depending on your channel count, but
-              subsequent refreshes will be much faster thanks to caching.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Invidious Instance URL (optional)
-            </label>
-            <Input
-              type="text"
-              placeholder="e.g., https://invidious.example.com"
-              value={options.invidousInstance}
-              onChange={(e) =>
-                setOptions({ ...options, invidousInstance: e.target.value })
-              }
-              className="text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              Leave empty to skip video durations.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Need an instance? Check{" "}
-              <a
-                href="https://api.invidious.io/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                available Invidious instances
-              </a>{" "}
-              (look for api: ✔)
-            </p>
-          </div>
-        </div>
-      ),
-    },
     {
       title: "Content Types",
       description: "What content do you want to see?",

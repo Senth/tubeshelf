@@ -4,6 +4,7 @@ import path from "path";
 export interface UserState {
   watchedVideos: string[];
   hideWatched: boolean;
+  hideMemberOnly?: boolean;
   filterListId?: string;
   watchLater?: Array<{
     id: string;
@@ -38,7 +39,11 @@ async function ensureConfigFile() {
     await fs.access(configFile);
   } catch {
     await ensureDir();
-    const defaultConfig = { hideWatched: false, filterListId: "all" };
+    const defaultConfig = {
+      hideWatched: false,
+      hideMemberOnly: false,
+      filterListId: "all",
+    };
     await fs.writeFile(
       configFile,
       JSON.stringify(defaultConfig, null, 2),
@@ -71,6 +76,7 @@ export async function readUserState(): Promise<UserState> {
 
   let watchedVideos: string[] = [];
   let hideWatched = false;
+  let hideMemberOnly = false;
   let filterListId = "all";
   let watchLater: UserState["watchLater"] = [];
 
@@ -86,6 +92,10 @@ export async function readUserState(): Promise<UserState> {
     hideWatched =
       typeof parsedConfig.hideWatched === "boolean"
         ? parsedConfig.hideWatched
+        : false;
+    hideMemberOnly =
+      typeof parsedConfig.hideMemberOnly === "boolean"
+        ? parsedConfig.hideMemberOnly
         : false;
     filterListId =
       typeof parsedConfig.filterListId === "string"
@@ -103,7 +113,13 @@ export async function readUserState(): Promise<UserState> {
     watchLater = [];
   }
 
-  return { watchedVideos, hideWatched, filterListId, watchLater };
+  return {
+    watchedVideos,
+    hideWatched,
+    hideMemberOnly,
+    filterListId,
+    watchLater,
+  };
 }
 
 export async function writeUserState(state: UserState) {
@@ -124,6 +140,7 @@ export async function writeUserState(state: UserState) {
     JSON.stringify(
       {
         hideWatched: !!state.hideWatched,
+        hideMemberOnly: !!state.hideMemberOnly,
         filterListId: state.filterListId ?? "all",
       },
       null,

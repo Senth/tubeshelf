@@ -3,7 +3,7 @@ import {
   fetchChannelFeed,
   fetchChannelFeedShorts,
   fetchChannelFeedLivestreams,
-} from "@/lib/rss";
+} from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
@@ -37,7 +37,6 @@ export async function GET(req: Request) {
     enableVideos: true,
     enableShorts: true,
     enableLivestreams: true,
-    enableVideoDuration: false,
   };
   try {
     const settingsData = await readSettings();
@@ -45,7 +44,6 @@ export async function GET(req: Request) {
       enableVideos: settingsData.enableVideos,
       enableShorts: settingsData.enableShorts,
       enableLivestreams: settingsData.enableLivestreams,
-      enableVideoDuration: settingsData.enableVideoDuration,
     };
   } catch {
     // Use defaults

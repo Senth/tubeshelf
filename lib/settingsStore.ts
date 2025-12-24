@@ -7,8 +7,6 @@ export interface AppSettings {
   enableVideos: boolean;
   enableShorts: boolean;
   enableLivestreams: boolean;
-  enableVideoDuration: boolean;
-  invidousInstance: string;
   hasCompletedWelcome: boolean;
 }
 
@@ -18,8 +16,6 @@ export const defaultSettings: AppSettings = {
   enableVideos: true,
   enableShorts: true,
   enableLivestreams: true,
-  enableVideoDuration: false,
-  invidousInstance: "",
   hasCompletedWelcome: false,
 };
 
