@@ -20,8 +20,7 @@ export interface NewPipeVideo {
   thumbnail?: string;
   duration?: string;
   viewCount?: number;
-  isShort?: boolean;
-  isLivestream?: boolean;
+  isMemberOnly?: boolean;
 }
 
 export interface NewPipeChannelMeta {
@@ -198,18 +197,76 @@ function parseVideoRenderer(renderer: any): NewPipeVideo | null {
       viewCount = parseInt(views);
     }
 
-    // Detect shorts and livestreams
-    const isShort =
-      renderer.thumbnailOverlays?.some(
-        (overlay: any) =>
-          overlay.thumbnailOverlayTimeStatusRenderer?.style === "SHORTS"
-      ) || false;
+    // Detect members-only videos via badges, explicit flags, or embedded text
+    let isMemberOnly = false;
+    try {
+      if (
+        renderer.isForMembers ||
+        renderer.forMembershipsOnly ||
+        renderer.membersOnly ||
+        renderer.isMembersOnly
+      ) {
+        isMemberOnly = true;
+      }
 
-    const isLivestream =
-      renderer.badges?.some(
-        (badge: any) =>
-          badge.metadataBadgeRenderer?.style === "BADGE_STYLE_TYPE_LIVE_NOW"
-      ) || false;
+      const badgeCandidates =
+        renderer.badges || renderer.ownerBadges || renderer.badgeMeta || [];
+      if (Array.isArray(badgeCandidates)) {
+        for (const b of badgeCandidates) {
+          const text = (
+            b?.label ||
+            b?.metadata?.label ||
+            b?.badgeRenderer?.label ||
+            ""
+          )
+            .toString()
+            .toLowerCase();
+          if (text.includes("member") || text.includes("members")) {
+            isMemberOnly = true;
+            break;
+          }
+          const style = b?.badgeRenderer?.style || "";
+          if (
+            typeof style === "string" &&
+            style.toLowerCase().includes("member")
+          ) {
+            isMemberOnly = true;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      // ignore detection errors
+    }
+
+    // Additional heuristic: search renderer fields for 'member' text
+    const containsMemberText = (val: any, depth = 0): boolean => {
+      if (depth > 6 || val == null) return false;
+      if (typeof val === "string")
+        return /members?[-\s]?only|for members|member(s)?/i.test(val);
+      if (typeof val === "number" || typeof val === "boolean") return false;
+      if (Array.isArray(val)) {
+        for (const el of val)
+          if (containsMemberText(el, depth + 1)) return true;
+        return false;
+      }
+      if (typeof val === "object") {
+        // iterate over more keys to catch nested metadata
+        const keys = Object.keys(val).slice(0, 100);
+        for (const k of keys) {
+          try {
+            if (containsMemberText(val[k], depth + 1)) return true;
+          } catch {}
+        }
+      }
+      return false;
+    };
+
+    try {
+      if (!isMemberOnly && containsMemberText(renderer)) {
+        isMemberOnly = true;
+      }
+    } catch {}
 
     return {
       id: videoId,
@@ -221,8 +278,7 @@ function parseVideoRenderer(renderer: any): NewPipeVideo | null {
       thumbnail: thumbnail.startsWith("//") ? `https:${thumbnail}` : thumbnail,
       duration,
       viewCount,
-      isShort,
-      isLivestream,
+      isMemberOnly,
     };
   } catch (error) {
     console.warn("[NewPipe] Failed to parse video renderer:", error);
@@ -236,22 +292,12 @@ function parseVideoRenderer(renderer: any): NewPipeVideo | null {
 export async function fetchChannelVideos(
   channelId: string,
   options: {
-    type?: "videos" | "shorts" | "livestreams";
     limit?: number;
   } = {}
 ): Promise<{ videos: NewPipeVideo[]; meta: NewPipeChannelMeta }> {
-  const { type = "videos", limit = 30 } = options;
+  const { limit = 30 } = options;
 
-  let url = `https://www.youtube.com/channel/${channelId}`;
-
-  // Add tab parameter based on type
-  if (type === "videos") {
-    url += "/videos";
-  } else if (type === "shorts") {
-    url += "/shorts";
-  } else if (type === "livestreams") {
-    url += "/streams";
-  }
+  const url = `https://www.youtube.com/channel/${channelId}/videos`;
 
   const headers = {
     "User-Agent":
@@ -263,7 +309,7 @@ export async function fetchChannelVideos(
   };
 
   try {
-    console.log(`[NewPipe] Fetching ${type} for channel ${channelId}`);
+    console.log(`[NewPipe] Fetching videos for channel ${channelId}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -315,24 +361,14 @@ export async function fetchChannelVideos(
       const sectionList = content?.sectionListRenderer;
 
       if (richGrid) {
-        // Videos/Shorts tab
         const contents = richGrid.contents || [];
-          videoRenderers = contents
-            .map((item: any) => {
-              const content = item.richItemRenderer?.content || {};
-              return (
-                content.videoRenderer ||
-                content.gridVideoRenderer ||
-                content.shortRenderer ||
-                content.shortsVideoRenderer ||
-                content.reelItemRenderer ||
-                content.gridShortsRenderer ||
-                null
-              );
-            })
-            .filter(Boolean);
+        videoRenderers = contents
+          .map((item: any) => {
+            const content = item.richItemRenderer?.content || {};
+            return content.videoRenderer || content.gridVideoRenderer || null;
+          })
+          .filter(Boolean);
       } else if (sectionList) {
-        // Livestreams tab or alternative layout
         const sections = sectionList.contents || [];
         for (const section of sections) {
           const itemSection = section.itemSectionRenderer;
@@ -340,14 +376,10 @@ export async function fetchChannelVideos(
             const contents = itemSection.contents || [];
             videoRenderers.push(
               ...contents
-                  .map((item: any) =>
-                    item.videoRenderer ||
-                    item.gridVideoRenderer ||
-                    item.shortRenderer ||
-                    item.shortsVideoRenderer ||
-                    item.reelItemRenderer ||
-                    null
-                  )
+                .map(
+                  (item: any) =>
+                    item.videoRenderer || item.gridVideoRenderer || null
+                )
                 .filter(Boolean)
             );
           }
@@ -361,29 +393,8 @@ export async function fetchChannelVideos(
       .filter((v): v is NewPipeVideo => v !== null)
       .slice(0, limit);
 
-    // Filter based on type
-    // Note: rely less strictly on the parsed flags for shorts/livestreams
-    // because YouTube's renderer structure can change. When requesting the
-    // dedicated "shorts" or "livestreams" tab, assume the returned
-    // renderers are of that type and accept them. For the regular
-    // "videos" tab, exclude detected shorts/livestreams as before.
-    const filteredVideos = videos.filter((video) => {
-      if (type === "shorts") return true; // accept all from /shorts
-      if (type === "livestreams") return true; // accept all from /streams
-      if (type === "videos") return !video.isShort && !video.isLivestream;
-      return true;
-    });
-
-    // Ensure items fetched from the dedicated tabs are flagged correctly
-    if (type === "shorts") {
-      filteredVideos.forEach((v) => (v.isShort = true));
-    }
-    if (type === "livestreams") {
-      filteredVideos.forEach((v) => (v.isLivestream = true));
-    }
-
     console.log(
-      `[NewPipe] Found ${filteredVideos.length} ${type} for channel ${channelId}`
+      `[NewPipe] Found ${videos.length} videos for channel ${channelId}`
     );
 
     const meta: NewPipeChannelMeta = {
@@ -398,10 +409,10 @@ export async function fetchChannelVideos(
       subscriberCount: subscriberText,
     };
 
-    return { videos: filteredVideos, meta };
+    return { videos, meta };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[NewPipe] Failed to fetch channel ${type}:`, errorMsg);
+    console.error(`[NewPipe] Failed to fetch channel videos:`, errorMsg);
 
     // Return empty result instead of throwing
     return {
@@ -420,21 +431,7 @@ export async function fetchChannelVideos(
  * Fetch regular videos for a channel
  */
 export async function fetchChannelFeed(channelId: string) {
-  return fetchChannelVideos(channelId, { type: "videos" });
-}
-
-/**
- * Fetch shorts for a channel
- */
-export async function fetchChannelFeedShorts(channelId: string) {
-  return fetchChannelVideos(channelId, { type: "shorts" });
-}
-
-/**
- * Fetch livestreams for a channel
- */
-export async function fetchChannelFeedLivestreams(channelId: string) {
-  return fetchChannelVideos(channelId, { type: "livestreams" });
+  return fetchChannelVideos(channelId, {});
 }
 
 /**
@@ -453,7 +450,6 @@ export function newPipeToRSSFormat(video: NewPipeVideo): any {
     duration: video.duration,
     viewCount: video.viewCount,
     views: video.viewCount,
-    isShort: video.isShort,
-    isLivestream: video.isLivestream,
+    isMemberOnly: !!video.isMemberOnly,
   };
 }

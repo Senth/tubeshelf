@@ -18,8 +18,6 @@ export interface FeedVideo {
   duration?: string;
   viewCount?: number;
   views?: number;
-  isShort?: boolean;
-  isLivestream?: boolean;
 }
 
 export interface ChannelMeta {
@@ -42,32 +40,6 @@ export async function fetchChannelFeed(
   channelId: string
 ): Promise<FetchResult> {
   const result = await newpipe.fetchChannelFeed(channelId);
-  return {
-    videos: result.videos.map(newpipe.newPipeToRSSFormat),
-    meta: result.meta,
-  };
-}
-
-/**
- * Fetch channel shorts
- */
-export async function fetchChannelFeedShorts(
-  channelId: string
-): Promise<FetchResult> {
-  const result = await newpipe.fetchChannelFeedShorts(channelId);
-  return {
-    videos: result.videos.map(newpipe.newPipeToRSSFormat),
-    meta: result.meta,
-  };
-}
-
-/**
- * Fetch channel livestreams
- */
-export async function fetchChannelFeedLivestreams(
-  channelId: string
-): Promise<FetchResult> {
-  const result = await newpipe.fetchChannelFeedLivestreams(channelId);
   return {
     videos: result.videos.map(newpipe.newPipeToRSSFormat),
     meta: result.meta,

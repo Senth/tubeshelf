@@ -6,8 +6,6 @@ export interface Video {
   thumbnail: string;
   duration?: string;
   uploadedAt: string;
-  isShort?: boolean;
-  isLivestream?: boolean;
   isMemberOnly?: boolean;
   views?: number;
   url: string;
@@ -56,8 +54,6 @@ export async function getVideos(forceRefresh = false): Promise<Video[]> {
     views: item.viewCount || item.views,
     isMemberOnly:
       item.isMemberOnly || item.membersOnly || item.isMembersOnly || false,
-    isShort: item.isShort || false,
-    isLivestream: item.isLivestream || false,
     url: item.url,
   }));
 }

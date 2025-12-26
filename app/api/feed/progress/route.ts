@@ -26,15 +26,24 @@ export async function GET(req: Request) {
   const stream = new ReadableStream({
     start(controller) {
       unsubscribe = subscribe((progress) => {
+        try {
+          console.log("[SSE-progress] sending snapshot to", clientId, progress);
+        } catch {}
         const data = `data: ${JSON.stringify(progress)}\n\n`;
         controller.enqueue(encoder.encode(data));
       });
+      try {
+        console.log("[SSE-progress] client subscribed:", clientId);
+      } catch {}
     },
     cancel() {
       if (unsubscribe) {
         unsubscribe();
       }
       activeClients.delete(clientId);
+      try {
+        console.log("[SSE-progress] client unsubscribed:", clientId);
+      } catch {}
     },
   });
 

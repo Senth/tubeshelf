@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  fetchChannelFeed,
-  fetchChannelFeedShorts,
-  fetchChannelFeedLivestreams,
-} from "@/lib/videoFetcher";
+import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
@@ -26,19 +22,11 @@ export async function GET(req: Request) {
     Object.fromEntries(req.headers.entries())
   );
 
-  // Get current settings
-  let currentSettings = {
-    enableVideos: true,
-    enableShorts: true,
-    enableLivestreams: true,
-  };
+  // Get current settings (only video enable flag)
+  let currentSettings = { enableVideos: true };
   try {
     const settingsData = await readSettings();
-    currentSettings = {
-      enableVideos: settingsData.enableVideos,
-      enableShorts: settingsData.enableShorts,
-      enableLivestreams: settingsData.enableLivestreams,
-    };
+    currentSettings = { enableVideos: settingsData.enableVideos };
   } catch {
     // Use defaults
   }
@@ -101,58 +89,12 @@ export async function GET(req: Request) {
                     channelTitle: video.channelTitle || meta?.title,
                     thumbnail: video.thumbnail || meta?.thumbnail,
                     channelId: video.channelId || current,
-                    isShort: video.isShort,
-                    isLivestream: video.isLivestream,
                   };
                   channelItems.push(item);
                 });
               }
 
-              // Fetch shorts if enabled
-              if (feedSettings.enableShorts) {
-                try {
-                  const { videos: shortVideos, meta: shortMeta } =
-                    await fetchChannelFeedShorts(current);
-                  if (!meta && shortMeta) {
-                    meta = shortMeta;
-                  }
-                  shortVideos.forEach((video) => {
-                    const item = {
-                      ...video,
-                      channelTitle: video.channelTitle || meta?.title,
-                      thumbnail: video.thumbnail || meta?.thumbnail,
-                      channelId: video.channelId || current,
-                      isShort: true,
-                    };
-                    channelItems.push(item);
-                  });
-                } catch {
-                  // Continue if shorts fetch fails
-                }
-              }
-
-              // Fetch livestreams if enabled
-              if (feedSettings.enableLivestreams) {
-                try {
-                  const { videos: livestreams, meta: livestreamMeta } =
-                    await fetchChannelFeedLivestreams(current);
-                  if (!meta && livestreamMeta) {
-                    meta = livestreamMeta;
-                  }
-                  livestreams.forEach((video) => {
-                    const item = {
-                      ...video,
-                      channelTitle: video.channelTitle || meta?.title,
-                      thumbnail: video.thumbnail || meta?.thumbnail,
-                      channelId: video.channelId || current,
-                      isLivestream: true,
-                    };
-                    channelItems.push(item);
-                  });
-                } catch {
-                  // Continue if livestreams fetch fails
-                }
-              }
+              // Fetch only regular videos for each channel
 
               // Send newly fetched items sorted by publish date (newest first)
               channelItems.sort((a, b) => {
@@ -187,9 +129,22 @@ export async function GET(req: Request) {
         console.log(
           `[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`
         );
+        try {
+          // Ensure progress is finalized so clients don't see a stuck percentage
+          const { completeProgress } = await import("@/lib/feedProgress");
+          completeProgress();
+        } catch (e) {
+          console.warn("Failed to finalize progress:", e);
+        }
         controller.close();
       } catch (error) {
         console.error("[Stream] Error:", error);
+        try {
+          const { completeProgress } = await import("@/lib/feedProgress");
+          completeProgress();
+        } catch (e) {
+          console.warn("Failed to finalize progress after error:", e);
+        }
         controller.close();
       }
     },

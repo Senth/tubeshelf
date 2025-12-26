@@ -20,8 +20,6 @@ interface WelcomeWizardProps {
 
 export interface WelcomeOptions {
   enableVideos: boolean;
-  enableShorts: boolean;
-  enableLivestreams: boolean;
   userAcceptedWelcome: boolean;
 }
 
@@ -39,8 +37,6 @@ export function WelcomeWizard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [options, setOptions] = useState<WelcomeOptions>({
     enableVideos: true,
-    enableShorts: true,
-    enableLivestreams: true,
     userAcceptedWelcome: true,
   });
   const [wantToImport, setWantToImport] = useState(false);
@@ -258,47 +254,6 @@ export function WelcomeWizard({
                 </p>
               </div>
               <span className="text-xl">🎥</span>
-            </label>
-            <label className="flex items-center gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-secondary/50 transition-all hover:border-primary/50 group">
-              <input
-                type="checkbox"
-                checked={options.enableShorts}
-                onChange={(e) =>
-                  setOptions({ ...options, enableShorts: e.target.checked })
-                }
-                className="w-5 h-5 cursor-pointer accent-primary"
-              />
-              <div className="flex-1">
-                <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                  Shorts
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  YouTube Shorts and quick clips
-                </p>
-              </div>
-              <span className="text-xl">⚡</span>
-            </label>
-            <label className="flex items-center gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-secondary/50 transition-all hover:border-primary/50 group">
-              <input
-                type="checkbox"
-                checked={options.enableLivestreams}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    enableLivestreams: e.target.checked,
-                  })
-                }
-                className="w-5 h-5 cursor-pointer accent-primary"
-              />
-              <div className="flex-1">
-                <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                  Livestreams
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Live streams from your channels
-                </p>
-              </div>
-              <span className="text-xl">🔴</span>
             </label>
           </div>
         </div>

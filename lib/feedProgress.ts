@@ -68,6 +68,16 @@ export function getProgress(): FeedProgress {
   return { ...progress };
 }
 
+// Mark progress as complete and notify subscribers (used when stream finishes)
+export function completeProgress() {
+  if (progress.total > 0) {
+    progress.completed = progress.total;
+  }
+  progress.currentChannel = undefined;
+  progress.currentChannelTitle = undefined;
+  notifySubscribers();
+}
+
 export function subscribe(callback: (data: FeedProgress) => void) {
   progress.subscribers.push(callback);
   // Immediately send current progress

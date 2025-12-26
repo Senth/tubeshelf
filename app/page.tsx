@@ -13,7 +13,9 @@ import {
   Zap,
   RadioTower,
 } from "lucide-react";
+import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
+import useFeedProgress from "@/lib/useFeedProgress";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
@@ -44,7 +46,7 @@ import type {
 } from "@/lib/subscriptionListStore";
 
 type Page = "home" | "watch-later";
-type FeedTab = "videos" | "shorts" | "livestreams";
+type FeedTab = "videos";
 
 interface WatchLaterItem {
   id: string;
@@ -72,12 +74,7 @@ export default function Home() {
   const componentId = useRef(Math.random().toString(36).substring(7));
   const [feedTab, setFeedTab] = useState<FeedTab>("videos");
   const [videos, setVideos] = useState<Video[]>([]);
-  const [shorts, setShorts] = useState<Video[]>([]);
-  const [livestreams, setLivestreams] = useState<Video[]>([]);
-  // Refs to keep current arrays for quick comparison in subscribe
   const videosRef = useRef<Video[]>([]);
-  const shortsRef = useRef<Video[]>([]);
-  const livestreamsRef = useRef<Video[]>([]);
   const loadingRef = useRef<boolean>(true);
   const fetchingRef = useRef<boolean>(false);
   const errorRef = useRef<string | null>(null);
@@ -85,10 +82,9 @@ export default function Home() {
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
-  const [filteredShorts, setFilteredShorts] = useState<Video[]>([]);
-  const [filteredLivestreams, setFilteredLivestreams] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hideWatched, setHideWatched] = useState(false);
@@ -101,44 +97,68 @@ export default function Home() {
   const [filterListId, setFilterListId] = useState<string>("all");
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [progress, setProgress] = useState<{
-    completed: number;
-    total: number;
-    currentChannelTitle?: string;
-  } | null>(null);
+  const { progress, liveChannelTitle, fallbackTotal, completedFallback } =
+    useFeedProgress(
+      showLoadingProgress,
+      subscriptionLists,
+      filterListId,
+      videos
+    );
+
+  const uiFallbackTotal = useMemo(() => {
+    if (filterListId === "all") {
+      const uniqueChannels = new Set<string>();
+      subscriptionLists.forEach((list) => {
+        list.subscriptions.forEach((sub) => uniqueChannels.add(sub.channelId));
+      });
+      // If subscription lists are empty (still loading), fall back to channels seen in `videos`
+      if (uniqueChannels.size > 0) return uniqueChannels.size;
+    } else {
+      const selectedList = subscriptionLists.find((l) => l.id === filterListId);
+      if (selectedList && selectedList.subscriptions.length > 0)
+        return selectedList.subscriptions.length;
+    }
+
+    // Fallback: count unique channelIds observed in streamed videos so the UI shows progress while lists load
+    const seen = new Set<string>();
+    videos.forEach((v) => {
+      if (v.channelId) seen.add(v.channelId);
+    });
+    return seen.size || 0;
+  }, [filterListId, subscriptionLists]);
+
+  const uiCompletedFallback = useMemo(() => {
+    const set = new Set<string>();
+    videos.forEach((v) => {
+      if (v.channelId) set.add(v.channelId);
+    });
+    return set.size;
+  }, [videos]);
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Close the ad-hoc "more" menu when clicking outside
   useEffect(() => {
-    if (!showLoadingProgress) {
-      setProgress(null);
-      return;
-    }
-
-    const eventSource = new EventSource("/api/feed/progress");
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setProgress(data);
-      } catch (e) {
-        console.error("Failed to parse progress:", e);
+    const onClick = (ev: MouseEvent) => {
+      if (
+        showMoreMenu &&
+        moreMenuRef.current &&
+        !(ev.target instanceof Node && moreMenuRef.current.contains(ev.target))
+      ) {
+        setShowMoreMenu(false);
       }
     };
 
-    eventSource.onerror = () => {
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [showLoadingProgress]);
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [showMoreMenu]);
 
   const refreshData = async (forceRefresh = false) => {
     setError(null);
@@ -216,6 +236,32 @@ export default function Home() {
     }
   };
 
+  // Toggle and persist hideMemberOnly. The Switch component reports its checked state
+  // as `true` when member videos are shown, so we invert it when storing.
+  const toggleHideMemberOnlyPersist = async (switchChecked: boolean) => {
+    const newHideMemberOnly = !switchChecked;
+    setHideMemberOnly(newHideMemberOnly);
+
+    try {
+      await fetch("/api/user-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          watchedVideos: Array.from(watchedVideos),
+          hideWatched,
+          hideMemberOnly: newHideMemberOnly,
+          filterListId,
+          watchLater: watchLater.map((item) => ({
+            ...item,
+            addedAt: item.addedAt.toISOString(),
+          })),
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to persist hideMemberOnly setting:", e);
+    }
+  };
+
   const handleChangeFilterList = async (newId: string) => {
     setFilterListId(newId);
     try {
@@ -238,22 +284,14 @@ export default function Home() {
   useEffect(() => {
     // Subscribe to feed manager
     const unsubscribe = feedManager.subscribe((feedData) => {
-      // Only update main lists if content changed to avoid re-renders
       if (!arraysHaveSameIds(videosRef.current, feedData.videos)) {
         setVideos(feedData.videos);
         videosRef.current = feedData.videos;
-      }
-      if (!arraysHaveSameIds(shortsRef.current, feedData.shorts)) {
-        setShorts(feedData.shorts);
-        shortsRef.current = feedData.shorts;
-      }
-      if (!arraysHaveSameIds(livestreamsRef.current, feedData.livestreams)) {
-        setLivestreams(feedData.livestreams);
-        livestreamsRef.current = feedData.livestreams;
+        // Debug: log JSON sample of incoming feed items so we can inspect keys
+        // (debugging removed)
       }
 
-      // Do NOT set filtered state here; let the debounced filter effect compute it.
-      // Only update loading/fetching/error when values actually change
+      // Update loading/fetching/error when values change
       if (loadingRef.current !== feedData.loading) {
         setLoading(feedData.loading);
         loadingRef.current = feedData.loading;
@@ -263,6 +301,8 @@ export default function Home() {
         setShowLoadingProgress(feedData.fetching);
         fetchingRef.current = feedData.fetching;
       }
+
+      // live channel title is handled by the progress hook
 
       if (errorRef.current !== feedData.error) {
         setError(feedData.error);
@@ -327,32 +367,6 @@ export default function Home() {
     // Only cleanup on actual page navigation
   }, []);
 
-  // Auto-redirect to first available tab if current tab is disabled
-  useEffect(() => {
-    if (!settings) return;
-
-    const isCurrentTabDisabled =
-      (feedTab === "videos" && !settings.enableVideos) ||
-      (feedTab === "shorts" && !settings.enableShorts) ||
-      (feedTab === "livestreams" && !settings.enableLivestreams);
-
-    if (isCurrentTabDisabled) {
-      // Find first enabled tab
-      if (settings.enableVideos) {
-        setFeedTab("videos");
-      } else if (settings.enableShorts) {
-        setFeedTab("shorts");
-      } else if (settings.enableLivestreams) {
-        setFeedTab("livestreams");
-      }
-    }
-  }, [
-    settings?.enableVideos,
-    settings?.enableShorts,
-    settings?.enableLivestreams,
-    feedTab,
-  ]);
-
   // Save user state when it changes
   useEffect(() => {
     if (
@@ -399,8 +413,6 @@ export default function Home() {
     const timer = setTimeout(() => {
       const term = searchQuery.trim().toLowerCase();
       let vids = videos;
-      let shts = shorts;
-      let liveStreams = livestreams;
 
       // Filter by subscription list
       if (filterListId !== "all") {
@@ -412,13 +424,9 @@ export default function Home() {
             selectedList.subscriptions.map((s) => s.channelId)
           );
           vids = vids.filter((v) => channelIds.has(v.channelId));
-          shts = shts.filter((v) => channelIds.has(v.channelId));
-          liveStreams = liveStreams.filter((v) => channelIds.has(v.channelId));
         } else if (subscriptionLists.length > 0) {
           // List ID is set but list not found, and lists are loaded - show nothing
           vids = [];
-          shts = [];
-          liveStreams = [];
         }
         // If subscriptionLists is still empty (loading), skip filtering and show all videos
       }
@@ -430,30 +438,18 @@ export default function Home() {
             v.title.toLowerCase().includes(term) ||
             v.channel.toLowerCase().includes(term)
         );
-        shts = shts.filter(
-          (v) =>
-            v.title.toLowerCase().includes(term) ||
-            v.channel.toLowerCase().includes(term)
-        );
-        liveStreams = liveStreams.filter(
-          (v) =>
-            v.title.toLowerCase().includes(term) ||
-            v.channel.toLowerCase().includes(term)
-        );
       }
 
       // Filter out watched videos if hideWatched is true
       if (hideWatched) {
         vids = vids.filter((v) => !watchedVideos.has(v.id));
-        shts = shts.filter((v) => !watchedVideos.has(v.id));
-        liveStreams = liveStreams.filter((v) => !watchedVideos.has(v.id));
       }
+
+      // (member-only counting removed)
 
       // Filter out member-only videos if requested
       if (hideMemberOnly) {
         vids = vids.filter((v) => !v.isMemberOnly);
-        shts = shts.filter((v) => !v.isMemberOnly);
-        liveStreams = liveStreams.filter((v) => !v.isMemberOnly);
       }
 
       // Sort by date (newest first by default, oldest first if setting is "oldest")
@@ -475,20 +471,14 @@ export default function Home() {
       };
 
       vids = sortByDate(vids);
-      shts = sortByDate(shts);
-      liveStreams = sortByDate(liveStreams);
-
+      // (debugging removed)
       setFilteredVideos(vids);
-      setFilteredShorts(shts);
-      setFilteredLivestreams(liveStreams);
     }, 200);
 
     return () => clearTimeout(timer);
   }, [
     searchQuery,
     videos,
-    shorts,
-    livestreams,
     hideWatched,
     hideMemberOnly,
     watchedVideos,
@@ -548,9 +538,7 @@ export default function Home() {
       setSettings(freshSettings);
 
       // If content filter settings changed, refresh feed data
-      const contentFilterChanged =
-        updates.enableShorts !== undefined ||
-        updates.enableLivestreams !== undefined;
+      const contentFilterChanged = updates.enableVideos !== undefined;
 
       if (contentFilterChanged) {
         // Close settings panel before refresh to show loading bar
@@ -689,8 +677,6 @@ export default function Home() {
       // Apply wizard settings (including hasCompletedWelcome flag)
       const updates: Partial<typeof settings> = {
         enableVideos: options.enableVideos,
-        enableShorts: options.enableShorts,
-        enableLivestreams: options.enableLivestreams,
         hasCompletedWelcome: true,
       };
 
@@ -737,12 +723,16 @@ export default function Home() {
   const iconUrl = useMemo(() => {
     if (theme === "dark") return "/icon-dark.svg";
     if (theme === "light") return "/icon-light.svg";
-    // system theme
+    // theme === 'system' — avoid reading window on the server to prevent
+    // hydration mismatches. Until the component is mounted, return the
+    // same value the server would render (light), then after mount use
+    // the real prefers-color-scheme value.
+    if (!mounted) return "/icon-light.svg";
     const prefersDark =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches;
     return prefersDark ? "/icon-dark.svg" : "/icon-light.svg";
-  }, [theme]);
+  }, [theme, mounted]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -773,7 +763,9 @@ export default function Home() {
             {/* Search */}
             <div className="hidden md:flex flex-1 max-w-md mx-8">
               <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <ClientOnly>
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                </ClientOnly>
                 <Input
                   type="text"
                   value={searchQuery}
@@ -787,7 +779,9 @@ export default function Home() {
                     className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     title="Clear search (or press Escape)"
                   >
-                    <X className="w-4 h-4" />
+                    <ClientOnly>
+                      <X className="w-4 h-4" />
+                    </ClientOnly>
                   </button>
                 )}
               </div>
@@ -802,7 +796,9 @@ export default function Home() {
                 className="hidden sm:flex gap-1"
                 title="Manage subscriptions"
               >
-                <List className="w-5 h-5" />
+                <ClientOnly>
+                  <List className="w-5 h-5" />
+                </ClientOnly>
                 Manage
               </Button>
               <Button
@@ -812,7 +808,9 @@ export default function Home() {
                 className="relative"
                 title="Watch later list"
               >
-                <Bookmark className="w-5 h-5" />
+                <ClientOnly>
+                  <Bookmark className="w-5 h-5" />
+                </ClientOnly>
                 {watchLater.length > 0 && (
                   <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center">
                     {watchLater.length}
@@ -825,7 +823,9 @@ export default function Home() {
                 size="icon"
                 title="Settings"
               >
-                <Settings className="w-5 h-5" />
+                <ClientOnly>
+                  <Settings className="w-5 h-5" />
+                </ClientOnly>
               </Button>
             </div>
           </div>
@@ -833,7 +833,9 @@ export default function Home() {
           {/* Mobile Search */}
           <div className="md:hidden pb-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <ClientOnly>
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              </ClientOnly>
               <Input
                 type="text"
                 value={searchQuery}
@@ -847,7 +849,9 @@ export default function Home() {
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                   title="Clear search (or press Escape)"
                 >
-                  <X className="w-4 h-4" />
+                  <ClientOnly>
+                    <X className="w-4 h-4" />
+                  </ClientOnly>
                 </button>
               )}
             </div>
@@ -873,11 +877,39 @@ export default function Home() {
                   title="Refresh feed"
                   className="h-auto px-2 mt-1"
                 >
-                  <RefreshCw
-                    className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
-                  />
+                  <ClientOnly>
+                    <RefreshCw
+                      className={`w-5 h-5 ${
+                        isRefreshing ? "animate-spin" : ""
+                      }`}
+                    />
+                  </ClientOnly>
                 </Button>
-                <LoadingProgress isVisible={showLoadingProgress} />
+                {/* compute a fallback total (number of channels in current filter) so progress shows even when server reports 0 */}
+                <ClientOnly>
+                  <LoadingProgress
+                    isVisible={showLoadingProgress}
+                    progress={progress}
+                    liveChannelTitle={liveChannelTitle}
+                    fallbackTotal={(() => {
+                      if (filterListId === "all") {
+                        const uniqueChannels = new Set<string>();
+                        subscriptionLists.forEach((list) => {
+                          list.subscriptions.forEach((sub) => {
+                            uniqueChannels.add(sub.channelId);
+                          });
+                        });
+                        return uniqueChannels.size || null;
+                      } else {
+                        const selectedList = subscriptionLists.find(
+                          (l) => l.id === filterListId
+                        );
+                        return selectedList?.subscriptions.length || null;
+                      }
+                    })()}
+                    videos={videos}
+                  />
+                </ClientOnly>
               </div>
               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
                 <span>
@@ -905,22 +937,22 @@ export default function Home() {
                     <span>{filteredVideos.length} videos</span>
                   </>
                 )}
-                {settings?.enableShorts && (
-                  <>
-                    <span>•</span>
-                    <span>{filteredShorts.length} shorts</span>
-                  </>
-                )}
-                {settings?.enableLivestreams && (
-                  <>
-                    <span>•</span>
-                    <span>{filteredLivestreams.length} livestreams</span>
-                  </>
-                )}
-                {showLoadingProgress && progress && (
+                {showLoadingProgress && (
                   <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
-                    Loading: {progress.currentChannelTitle || "..."} (
-                    {progress.completed}/{progress.total})
+                    {(() => {
+                      const completed =
+                        progress?.completed ?? completedFallback ?? 0;
+                      const total = progress?.total ?? fallbackTotal;
+                      return (
+                        <>
+                          Loading:{" "}
+                          {liveChannelTitle ||
+                            progress?.currentChannelTitle ||
+                            "..."}{" "}
+                          ({completed}/{total})
+                        </>
+                      );
+                    })()}
                   </span>
                 )}
               </div>
@@ -936,7 +968,9 @@ export default function Home() {
                 variant="default"
                 className="w-full"
               >
-                <List className="w-5 h-5 mr-2" />
+                <ClientOnly>
+                  <List className="w-5 h-5 mr-2" />
+                </ClientOnly>
                 Manage Subscriptions
               </Button>
             </div>
@@ -966,48 +1000,58 @@ export default function Home() {
                         Videos
                       </button>
                     )}
-                    {settings?.enableShorts && (
-                      <button
-                        onClick={() => setFeedTab("shorts")}
-                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
-                          feedTab === "shorts"
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
-                          feedTab === "shorts"
-                            ? "after:bg-primary"
-                            : "after:bg-transparent"
-                        } hover:after:bg-primary/50`}
-                      >
-                        Shorts
-                      </button>
-                    )}
-                    {settings?.enableLivestreams && (
-                      <button
-                        onClick={() => setFeedTab("livestreams")}
-                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
-                          feedTab === "livestreams"
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
-                          feedTab === "livestreams"
-                            ? "after:bg-primary"
-                            : "after:bg-transparent"
-                        } hover:after:bg-primary/50`}
-                      >
-                        Livestreams
-                      </button>
-                    )}
+                    {/* Tabs simplified — only Videos available */}
                   </div>
                   <div className="flex items-center gap-3 pb-2">
-                    {/* Hide watched first */}
-                    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-                      <Switch
-                        checked={hideWatched}
-                        onCheckedChange={setHideWatched}
-                      />
-                      Hide watched
-                    </label>
+                    {/* Ad-hoc three-dot menu for extra controls (contains Hide watched + member toggle) */}
+                    <div className="relative" ref={moreMenuRef}>
+                      <button
+                        onClick={() => setShowMoreMenu((s) => !s)}
+                        aria-label="More"
+                        title="More"
+                        className="p-1.5 rounded-md hover:bg-accent/20 text-muted-foreground"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          className="w-4 h-4"
+                        >
+                          <circle cx="12" cy="5" r="2" />
+                          <circle cx="12" cy="12" r="2" />
+                          <circle cx="12" cy="19" r="2" />
+                        </svg>
+                      </button>
+
+                      {showMoreMenu && (
+                        <div className="absolute right-0 mt-2 w-64 bg-card border border-border/50 rounded shadow-lg p-2 z-50">
+                          <div className="flex flex-col gap-2">
+                            <label className="flex items-center justify-between gap-3 px-2 py-2 hover:bg-muted/5 rounded">
+                              <div className="text-sm text-foreground">
+                                Hide watched
+                              </div>
+                              <Switch
+                                checked={hideWatched}
+                                onCheckedChange={setHideWatched}
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between gap-3 px-2 py-2 hover:bg-muted/5 rounded">
+                              <div className="text-sm text-foreground">
+                                Show member videos
+                              </div>
+                              <Switch
+                                checked={!hideMemberOnly}
+                                onCheckedChange={toggleHideMemberOnlyPersist}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* List Filter */}
                     <select
                       value={filterListId}
@@ -1088,105 +1132,7 @@ export default function Home() {
                   </>
                 )}
 
-                {/* Shorts Tab */}
-                {feedTab === "shorts" && (
-                  <>
-                    {loading ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {Array.from({ length: 15 }).map((_, i) => (
-                          <VideoCardSkeleton key={i} />
-                        ))}
-                      </div>
-                    ) : filteredShorts.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="text-5xl mb-4">⏱️</div>
-                        <h3 className="text-lg font-semibold mb-2">
-                          {searchQuery ? "No shorts found" : "No shorts yet"}
-                        </h3>
-                        <p className="text-muted-foreground">
-                          {searchQuery
-                            ? "Try adjusting your search"
-                            : "Subscribed channels haven't posted any shorts lately"}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {filteredShorts.map((video) => (
-                          <VideoCard
-                            key={video.id}
-                            id={video.id}
-                            title={video.title}
-                            channel={video.channel}
-                            thumbnail={video.thumbnail}
-                            uploadedAt={video.uploadedAt}
-                            views={video.views}
-                            watched={watchedVideos.has(video.id)}
-                            videoUrl={video.url}
-                            onWatch={() => handleWatchVideo(video.id)}
-                            onWatchLater={() => handleAddToWatchLater(video)}
-                            onMarkWatched={() => handleToggleWatched(video.id)}
-                            onChannelClick={(channelName) =>
-                              setSearchQuery(
-                                searchQuery === channelName ? "" : channelName
-                              )
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Livestreams Tab */}
-                {feedTab === "livestreams" && (
-                  <>
-                    {loading ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                        {Array.from({ length: 12 }).map((_, i) => (
-                          <VideoCardSkeleton key={i} />
-                        ))}
-                      </div>
-                    ) : filteredLivestreams.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="text-5xl mb-4">📡</div>
-                        <h3 className="text-lg font-semibold mb-2">
-                          {searchQuery
-                            ? "No livestreams found"
-                            : "No livestreams"}
-                        </h3>
-                        <p className="text-muted-foreground">
-                          {searchQuery
-                            ? "Try adjusting your search"
-                            : "No channels are currently streaming"}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                        {filteredLivestreams.map((video) => (
-                          <VideoCard
-                            key={video.id}
-                            id={video.id}
-                            title={video.title}
-                            channel={video.channel}
-                            thumbnail={video.thumbnail}
-                            uploadedAt={video.uploadedAt}
-                            views={video.views}
-                            watched={watchedVideos.has(video.id)}
-                            videoUrl={video.url}
-                            onWatch={() => handleWatchVideo(video.id)}
-                            onWatchLater={() => handleAddToWatchLater(video)}
-                            onMarkWatched={() => handleToggleWatched(video.id)}
-                            onChannelClick={(channelName) =>
-                              setSearchQuery(
-                                searchQuery === channelName ? "" : channelName
-                              )
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
+                {/* UI simplified — only Videos tab content shown */}
               </>
             )}
           </>

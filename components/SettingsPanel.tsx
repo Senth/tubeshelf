@@ -243,47 +243,7 @@ export function SettingsPanel({
                 </div>
               </div>
 
-              {/* Content Filters */}
-              <div className="space-y-3">
-                <label className="block text-sm font-medium">
-                  Content Filters
-                </label>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <label className="text-sm font-medium cursor-pointer">
-                      Include Videos
-                    </label>
-                    <Switch
-                      checked={local.enableVideos}
-                      onCheckedChange={(checked) =>
-                        setLocal({ ...local, enableVideos: checked })
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <label className="text-sm font-medium cursor-pointer">
-                      Include Shorts
-                    </label>
-                    <Switch
-                      checked={local.enableShorts}
-                      onCheckedChange={(checked) =>
-                        setLocal({ ...local, enableShorts: checked })
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <label className="text-sm font-medium cursor-pointer">
-                      Include Livestreams
-                    </label>
-                    <Switch
-                      checked={local.enableLivestreams}
-                      onCheckedChange={(checked) =>
-                        setLocal({ ...local, enableLivestreams: checked })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* Content Filters removed - videos are always enabled */}
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 

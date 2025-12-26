@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  fetchChannelFeed,
-  fetchChannelFeedShorts,
-  fetchChannelFeedLivestreams,
-} from "@/lib/videoFetcher";
+import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
@@ -35,15 +31,11 @@ export async function GET(req: Request) {
   // Get current settings to use as cache key - do this early
   let currentSettings = {
     enableVideos: true,
-    enableShorts: true,
-    enableLivestreams: true,
   };
   try {
     const settingsData = await readSettings();
     currentSettings = {
       enableVideos: settingsData.enableVideos,
-      enableShorts: settingsData.enableShorts,
-      enableLivestreams: settingsData.enableLivestreams,
     };
   } catch {
     // Use defaults
@@ -193,92 +185,10 @@ export async function GET(req: Request) {
               channelTitle: video.channelTitle || meta?.title,
               thumbnail: video.thumbnail || meta?.thumbnail,
               channelId: video.channelId || current,
-              isShort: video.isShort,
-              isLivestream: video.isLivestream,
             });
           });
         }
-
-        // Fetch shorts if enabled
-        if (feedSettings.enableShorts) {
-          try {
-            const { videos: shortVideos, meta: shortMeta } =
-              await fetchChannelFeedShorts(current);
-            // Update meta if we haven't set it yet
-            if (!meta && shortMeta) {
-              meta = shortMeta;
-            }
-            if (shortVideos.length > 0) {
-              hasVideos = true;
-              // Get the most recent upload from shorts
-              const mostRecent = shortVideos.reduce((latest, video) => {
-                const videoTime = new Date(video.publishedAt).getTime();
-                const latestTime = new Date(latest.publishedAt).getTime();
-                return videoTime > latestTime ? video : latest;
-              });
-              if (!latestUploadTime) {
-                latestUploadTime = mostRecent.publishedAt;
-              } else {
-                const shortTime = new Date(mostRecent.publishedAt).getTime();
-                const currentTime = new Date(latestUploadTime).getTime();
-                if (shortTime > currentTime) {
-                  latestUploadTime = mostRecent.publishedAt;
-                }
-              }
-            }
-            shortVideos.forEach((video) => {
-              items.push({
-                ...video,
-                channelTitle: video.channelTitle || meta?.title,
-                thumbnail: video.thumbnail || meta?.thumbnail,
-                channelId: video.channelId || current,
-                isShort: true,
-              });
-            });
-          } catch {
-            // Continue if shorts fetch fails
-          }
-        }
-
-        // Fetch livestreams if enabled
-        if (feedSettings.enableLivestreams) {
-          try {
-            const { videos: livestreams, meta: livestreamMeta } =
-              await fetchChannelFeedLivestreams(current);
-            // Update meta if we haven't set it yet
-            if (!meta && livestreamMeta) {
-              meta = livestreamMeta;
-            }
-            if (livestreams.length > 0) {
-              hasVideos = true;
-              const mostRecent = livestreams.reduce((latest, video) => {
-                const videoTime = new Date(video.publishedAt).getTime();
-                const latestTime = new Date(latest.publishedAt).getTime();
-                return videoTime > latestTime ? video : latest;
-              });
-              if (!latestUploadTime) {
-                latestUploadTime = mostRecent.publishedAt;
-              } else {
-                const liveTime = new Date(mostRecent.publishedAt).getTime();
-                const currentTime = new Date(latestUploadTime).getTime();
-                if (liveTime > currentTime) {
-                  latestUploadTime = mostRecent.publishedAt;
-                }
-              }
-            }
-            livestreams.forEach((video) => {
-              items.push({
-                ...video,
-                channelTitle: video.channelTitle || meta?.title,
-                thumbnail: video.thumbnail || meta?.thumbnail,
-                channelId: video.channelId || current,
-                isLivestream: true,
-              });
-            });
-          } catch {
-            // Continue if livestreams fetch fails
-          }
-        }
+        // Only regular videos are fetched for each channel
 
         // Track the latest upload time for this channel
         // Always update the timestamp with either the latest upload or current time

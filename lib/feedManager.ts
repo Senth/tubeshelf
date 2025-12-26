@@ -7,11 +7,10 @@ import { Video } from "./mockData";
 
 type FeedData = {
   videos: Video[];
-  shorts: Video[];
-  livestreams: Video[];
   loading: boolean;
   fetching: boolean; // Background refresh in progress
   error: string | null;
+  currentChannelTitle?: string | null;
 };
 
 type Listener = (data: FeedData) => void;
@@ -22,11 +21,10 @@ class FeedManager {
   private static instance: FeedManager;
   private data: FeedData = {
     videos: [],
-    shorts: [],
-    livestreams: [],
     loading: false,
     fetching: false,
     error: null,
+    currentChannelTitle: null,
   };
   private listeners: Set<Listener> = new Set();
   private initialized = false;
@@ -55,8 +53,6 @@ class FeedManager {
         CACHE_KEY,
         JSON.stringify({
           videos: this.data.videos,
-          shorts: this.data.shorts,
-          livestreams: this.data.livestreams,
         })
       );
     } catch (e) {
@@ -88,12 +84,7 @@ class FeedManager {
     // Load cache on first subscription if not already loaded
     if (this.listeners.size === 1 && !this.initialized) {
       const cached = this.loadCache();
-      if (
-        cached &&
-        (cached.videos.length > 0 ||
-          cached.shorts.length > 0 ||
-          cached.livestreams.length > 0)
-      ) {
+      if (cached && cached.videos && cached.videos.length > 0) {
         this.data = cached;
         this.hasCachedData = true;
       }
@@ -156,8 +147,6 @@ class FeedManager {
         const decoder = new TextDecoder();
 
         const videos: Video[] = [];
-        const shorts: Video[] = [];
-        const livestreams: Video[] = [];
 
         let buffer = "";
         const videoIds = new Set<string>();
@@ -197,14 +186,19 @@ class FeedManager {
                     : thumb;
                 };
 
+                const channelName =
+                  rawVideo.channelTitle ||
+                  rawVideo.uploaderName ||
+                  rawVideo.channel ||
+                  "";
+
+                // Update live current channel title so UI can show which channel items are arriving from
+                this.updateData({ currentChannelTitle: channelName });
+
                 const video: Video = {
                   id: videoId,
                   title: rawVideo.title || "Untitled",
-                  channel:
-                    rawVideo.channelTitle ||
-                    rawVideo.uploaderName ||
-                    rawVideo.channel ||
-                    "Unknown Channel",
+                  channel: channelName || "Unknown Channel",
                   channelId: rawVideo.channelId || rawVideo.uploaderId || "",
                   thumbnail: getThumbnailUrl(
                     rawVideo.thumbnail || rawVideo.thumbnailUrl,
@@ -220,9 +214,6 @@ class FeedManager {
                   url:
                     rawVideo.url ||
                     `https://www.youtube.com/watch?v=${videoId}`,
-                  isShort:
-                    rawVideo.isShort || rawVideo.shortFormContent || false,
-                  isLivestream: rawVideo.isLivestream || false,
                   isMemberOnly:
                     rawVideo.isMemberOnly ||
                     rawVideo.membersOnly ||
@@ -231,25 +222,16 @@ class FeedManager {
                     false,
                 };
 
-                if (video.isShort) {
-                  shorts.push(video);
-                } else if (video.isLivestream) {
-                  livestreams.push(video);
-                } else {
-                  videos.push(video);
-                }
+                videos.push(video);
 
                 batchCounter++;
                 // Update data progressively in batches
                 // Skip progressive updates if we have cached data to prevent flickering
                 if (batchCounter >= BATCH_SIZE) {
                   if (!this.hasCachedData) {
-                    console.log(`Progressive update: ${videos.length} videos`);
                     // Turn off loading after first batch to show videos
                     this.updateData({
                       videos: [...videos],
-                      shorts: [...shorts],
-                      livestreams: [...livestreams],
                       loading: false, // Show videos as they arrive
                     });
                   }
@@ -266,25 +248,24 @@ class FeedManager {
         // Only update if data actually changed (prevents visual flicker when cache matches fresh data)
         const dataChanged =
           this.data.videos.length !== videos.length ||
-          this.data.shorts.length !== shorts.length ||
-          this.data.livestreams.length !== livestreams.length ||
           // Also check if the video IDs changed (different videos, not just reordered)
-          !this.arraysHaveSameIds(this.data.videos, videos) ||
-          !this.arraysHaveSameIds(this.data.shorts, shorts) ||
-          !this.arraysHaveSameIds(this.data.livestreams, livestreams);
+          !this.arraysHaveSameIds(this.data.videos, videos);
 
         if (dataChanged || !this.hasCachedData) {
           this.updateData({
             videos: [...videos],
-            shorts: [...shorts],
-            livestreams: [...livestreams],
             loading: false,
             fetching: false,
+            currentChannelTitle: null,
           });
         } else {
           // Don't update arrays - keep showing cached data
-          // Just update fetching/loading states
-          this.updateData({ loading: false, fetching: false });
+          // Just update fetching/loading states and clear live channel
+          this.updateData({
+            loading: false,
+            fetching: false,
+            currentChannelTitle: null,
+          });
         }
 
         this.initialized = true;
@@ -297,6 +278,7 @@ class FeedManager {
           error: err instanceof Error ? err.message : "Failed to fetch feed",
           loading: false,
           fetching: false,
+          currentChannelTitle: null,
         });
       } finally {
         this.initPromise = null;
