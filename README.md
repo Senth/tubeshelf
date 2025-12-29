@@ -73,6 +73,10 @@ It uses YouTube RSS feeds to collect videos from your subscriptions and displays
 
 - **[Enriched RSS](https://gitlab.com/sila_point/enriched-rss)** - A project with similar goals of enhancing feed experiences. Inspiration on solving the challenge of duration metadata.
 
+
+## AI Assistance Disclaimer
+This project was developed with assistance from AI/LLMs (including GitHub Copilot, ChatGPT, and related tools), supervised by humans who occasionally knew what they were doing.
+
 ## License
 
 This project is licensed under [AGPL-3.0 License](LICENSE).
