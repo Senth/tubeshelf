@@ -56,38 +56,7 @@ function extractYouTubeInitialData(html: string): any {
   return null;
 }
 
-/**
- * Format seconds into HH:MM:SS or MM:SS duration string
- */
-function formatDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
-  }
-  return `${minutes}:${secs.toString().padStart(2, "0")}`;
-}
-
-/**
- * Parse duration string like "PT4M13S" to seconds
- */
-function parseDuration(duration: string): number {
-  if (!duration || !duration.startsWith("PT")) return 0;
-
-  const hourMatch = duration.match(/(\d+)H/);
-  const minuteMatch = duration.match(/(\d+)M/);
-  const secondMatch = duration.match(/(\d+)S/);
-
-  const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
-  const minutes = minuteMatch ? parseInt(minuteMatch[1]) : 0;
-  const seconds = secondMatch ? parseInt(secondMatch[1]) : 0;
-
-  return hours * 3600 + minutes * 60 + seconds;
-}
+// duration formatting/parsing helpers were removed as they were unused
 
 /**
  * Parse video renderer data from YouTube's internal format

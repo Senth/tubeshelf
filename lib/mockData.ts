@@ -20,20 +20,6 @@ export interface Subscription {
   addedAt: string;
 }
 
-const headers: HeadersInit = {
-  "Content-Type": "application/json",
-};
-
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 export async function getVideos(forceRefresh = false): Promise<Video[]> {
   const url = `/api/feed${forceRefresh ? "?refresh=true" : ""}`;
   const res = await fetch(url, { cache: "no-store" });

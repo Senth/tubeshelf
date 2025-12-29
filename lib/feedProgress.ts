@@ -1,14 +1,14 @@
 // Global progress tracking for feed fetching
-interface FeedProgress {
+interface FeedProgressInternal {
   total: number;
   completed: number;
   currentChannel?: string;
   currentChannelTitle?: string;
-  subscribers: ((data: FeedProgress) => void)[];
+  subscribers: ((data: any) => void)[];
   sessionId?: string;
 }
 
-const progress: FeedProgress = {
+const progress: FeedProgressInternal = {
   total: 0,
   completed: 0,
   subscribers: [],
@@ -24,9 +24,7 @@ export function initProgress(total: number) {
   progress.sessionId = `${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-  console.log(
-    `[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`
-  );
+  console.log(`[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`);
   notifySubscribers();
 }
 
@@ -58,14 +56,14 @@ export function updateProgress(
   }
   progress.currentChannel = channelId;
   progress.currentChannelTitle = channelTitle;
-  console.log(
-    `[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`
-  );
+  console.log(`[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`);
   notifySubscribers();
 }
 
-export function getProgress(): FeedProgress {
-  return { ...progress };
+// Return a sanitized snapshot (no functions) for JSON serialization
+export function getProgress() {
+  const { total, completed, currentChannel, currentChannelTitle, sessionId } = progress;
+  return { total, completed, currentChannel, currentChannelTitle, sessionId };
 }
 
 // Mark progress as complete and notify subscribers (used when stream finishes)
@@ -79,17 +77,20 @@ export function completeProgress() {
 }
 
 export function subscribe(callback: (data: FeedProgress) => void) {
-  progress.subscribers.push(callback);
-  // Immediately send current progress
-  callback({ ...progress });
+  progress.subscribers.push(callback as any);
+  // Immediately send sanitized snapshot
+  callback(getProgress() as any);
 
   return () => {
-    progress.subscribers = progress.subscribers.filter((cb) => cb !== callback);
+    progress.subscribers = progress.subscribers.filter((cb) => cb !== (callback as any));
   };
 }
 
 function notifySubscribers() {
+  const snapshot = getProgress();
   progress.subscribers.forEach((callback) => {
-    callback({ ...progress });
+    try {
+      callback(snapshot as any);
+    } catch {}
   });
 }
