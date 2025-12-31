@@ -8,6 +8,17 @@ interface FeedProgressInternal {
   sessionId?: string;
 }
 
+// Public snapshot type (sanitized, JSON-safe)
+export type FeedProgress = {
+  total: number;
+  completed: number;
+  currentChannel?: string;
+  currentChannelTitle?: string;
+  sessionId?: string;
+};
+
+import * as logger from "@/lib/logger";
+
 const progress: FeedProgressInternal = {
   total: 0,
   completed: 0,
@@ -24,7 +35,7 @@ export function initProgress(total: number) {
   progress.sessionId = `${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-  console.log(`[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`);
+  logger.info(`[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`);
   notifySubscribers();
 }
 
@@ -35,14 +46,12 @@ export function updateProgress(
 ) {
   // Ignore updates from previous sessions
   if (sessionId && progress.sessionId && sessionId !== progress.sessionId) {
-    console.log(
-      `[FeedProgress] Ignoring update from old session: ${sessionId}`
-    );
+    logger.debug(`[FeedProgress] Ignoring update from old session: ${sessionId}`);
     return;
   }
   // Ignore updates if progress is not initialized
   if (progress.total <= 0) {
-    console.log(`[FeedProgress] Progress not initialized, ignoring update`);
+    logger.debug(`[FeedProgress] Progress not initialized, ignoring update`);
     return;
   }
   // If already completed, keep it capped and ignore further increments
@@ -56,7 +65,7 @@ export function updateProgress(
   }
   progress.currentChannel = channelId;
   progress.currentChannelTitle = channelTitle;
-  console.log(`[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`);
+  logger.debug(`[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`);
   notifySubscribers();
 }
 

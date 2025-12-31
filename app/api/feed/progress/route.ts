@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { subscribe } from "@/lib/feedProgress";
+import * as logger from "@/lib/logger";
 
 // Track active SSE clients by an ID to deduplicate
 const activeClients = new Set<string>();
@@ -27,13 +28,13 @@ export async function GET(req: Request) {
     start(controller) {
       unsubscribe = subscribe((progress) => {
         try {
-          console.log("[SSE-progress] sending snapshot to", clientId, progress);
-        } catch {}
+            logger.debug("[SSE-progress] sending snapshot to", clientId, progress);
+          } catch {}
         const data = `data: ${JSON.stringify(progress)}\n\n`;
         controller.enqueue(encoder.encode(data));
       });
       try {
-        console.log("[SSE-progress] client subscribed:", clientId);
+          logger.info("[SSE-progress] client subscribed:", clientId);
       } catch {}
     },
     cancel() {
@@ -42,7 +43,7 @@ export async function GET(req: Request) {
       }
       activeClients.delete(clientId);
       try {
-        console.log("[SSE-progress] client unsubscribed:", clientId);
+        logger.info("[SSE-progress] client unsubscribed:", clientId);
       } catch {}
     },
   });

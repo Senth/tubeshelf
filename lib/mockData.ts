@@ -20,6 +20,11 @@ export interface Subscription {
   addedAt: string;
 }
 
+// Common JSON headers used for POST requests
+const headers: HeadersInit = {
+  "Content-Type": "application/json",
+};
+
 export async function getVideos(forceRefresh = false): Promise<Video[]> {
   const url = `/api/feed${forceRefresh ? "?refresh=true" : ""}`;
   const res = await fetch(url, { cache: "no-store" });

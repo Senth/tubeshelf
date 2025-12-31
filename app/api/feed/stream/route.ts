@@ -3,6 +3,7 @@ import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
+import * as logger from "@/lib/logger";
 
 const CONCURRENCY = 4;
 
@@ -12,15 +13,12 @@ export async function GET(req: Request) {
   const requestId = Math.random().toString(36).substring(7);
   const timestamp = new Date().toISOString();
 
-  console.log(`[Stream Server] ========== NEW STREAM REQUEST ==========`);
-  console.log(`[Stream Server] Request ID: ${requestId}`);
-  console.log(`[Stream Server] Timestamp: ${timestamp}`);
-  console.log(`[Stream Server] forceRefresh: ${forceRefresh}`);
-  console.log(`[Stream Server] Full URL: ${req.url}`);
-  console.log(
-    `[Stream Server] Headers:`,
-    Object.fromEntries(req.headers.entries())
-  );
+  logger.debug(`[Stream Server] ========== NEW STREAM REQUEST ==========`);
+  logger.debug(`[Stream Server] Request ID: ${requestId}`);
+  logger.debug(`[Stream Server] Timestamp: ${timestamp}`);
+  logger.debug(`[Stream Server] forceRefresh: ${forceRefresh}`);
+  logger.debug(`[Stream Server] Full URL: ${req.url}`);
+  logger.debug(`[Stream Server] Headers:`, Object.fromEntries(req.headers.entries()));
 
   // Get current settings (only video enable flag)
   let currentSettings = { enableVideos: true };
@@ -31,12 +29,16 @@ export async function GET(req: Request) {
     // Use defaults
   }
 
-  // Get all unique channel IDs
+  // Get all unique channel IDs and map channelId -> title for logging
   const listsData = await readLists();
   const uniqueChannelIds = new Set<string>();
+  const channelTitleMap = new Map<string, string>();
   listsData.lists.forEach((list) => {
     list.subscriptions.forEach((sub) => {
       uniqueChannelIds.add(sub.channelId);
+      if (!channelTitleMap.has(sub.channelId)) {
+        channelTitleMap.set(sub.channelId, sub.title || "(unknown)");
+      }
     });
   });
   const channelIds = Array.from(uniqueChannelIds);
@@ -55,16 +57,13 @@ export async function GET(req: Request) {
 
   const customReadable = new ReadableStream({
     async start(controller) {
-      console.log(
-        `[Stream Server] ${requestId} - Starting stream processing with ${channelIds.length} channels`
-      );
+        logger.info(
+          `[Stream Server] ${requestId} - Starting stream processing with ${channelIds.length} channels`
+        );
       try {
         const queue = [...channelIds];
         const feedSettings = currentSettings;
-        console.log(
-          `[Stream Server] ${requestId} - Feed settings:`,
-          feedSettings
-        );
+                logger.debug(`[Stream Server] ${requestId} - Feed settings:`, feedSettings);
 
         const worker = async () => {
           while (queue.length > 0) {
@@ -77,6 +76,12 @@ export async function GET(req: Request) {
               if (feedSettings.enableVideos) {
                 const result = await fetchChannelFeed(current);
                 meta = result.meta;
+
+                // If the fetch returned no videos and no meta title, log as unavailable/404
+                if ((result.videos || []).length === 0 && !(meta && meta.title)) {
+                  const subTitle = channelTitleMap.get(current) || "(unknown)";
+                  console.warn(`[Stream] Channel unavailable or returned 404: ${current} - ${subTitle}`);
+                }
 
                 // Update progress now that we have the channel title
                 const channelTitle = meta?.title || current;
@@ -121,14 +126,10 @@ export async function GET(req: Request) {
         };
 
         await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-        console.log(
-          `[Stream Server] ${requestId} - Stream completed, sent ${
-            sentItems.size
-          } unique items at ${new Date().toISOString()}`
+        logger.info(
+          `[Stream Server] ${requestId} - Stream completed, sent ${sentItems.size} unique items at ${new Date().toISOString()}`
         );
-        console.log(
-          `[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`
-        );
+        logger.debug(`[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`);
         try {
           // Ensure progress is finalized so clients don't see a stuck percentage
           const { completeProgress } = await import("@/lib/feedProgress");

@@ -278,7 +278,11 @@ export async function fetchChannelVideos(
   };
 
   try {
-    console.log(`[NewPipe] Fetching videos for channel ${channelId}`);
+    // Debug/info only: fetching starts
+    // Use logger so default LOG_LEVEL (error) suppresses this in production
+    // and you can enable it with LOG_LEVEL=debug
+    const { debug } = await import("@/lib/logger");
+    debug(`[NewPipe] Fetching videos for channel ${channelId}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -291,6 +295,10 @@ export async function fetchChannelVideos(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // Explicitly log 404s so the container logs contain channel diagnostics
+      if (response.status === 404) {
+        console.error(`[NewPipe] Channel page returned 404 for ${channelId} -> ${url}`);
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
@@ -362,9 +370,8 @@ export async function fetchChannelVideos(
       .filter((v): v is NewPipeVideo => v !== null)
       .slice(0, limit);
 
-    console.log(
-      `[NewPipe] Found ${videos.length} videos for channel ${channelId}`
-    );
+    const { debug: dbg } = await import("@/lib/logger");
+    dbg(`[NewPipe] Found ${videos.length} videos for channel ${channelId}`);
 
     const meta: NewPipeChannelMeta = {
       channelId,

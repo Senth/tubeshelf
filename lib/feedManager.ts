@@ -135,7 +135,50 @@ class FeedManager {
         const streamUrl = `/api/feed/stream?refresh=false`;
 
         const response = await fetch(streamUrl);
+
+        // If the stream endpoint returns a non-OK status (for example 404),
+        // fall back to the JSON feed endpoint so the UI still receives data
+        // instead of throwing an exception on refresh.
         if (!response.ok) {
+          try {
+            const fallbackUrl = `/api/feed?refresh=true`;
+            const fallbackRes = await fetch(fallbackUrl);
+            if (fallbackRes.ok) {
+              const json = await fallbackRes.json();
+              const items = json.items || json.items || [];
+              const videosFromJson: Video[] = (items as any[]).map((raw) => ({
+                id: raw.id || raw.videoId,
+                title: raw.title || "Untitled",
+                channel: raw.channelTitle || raw.uploaderName || raw.channel || "Unknown Channel",
+                channelId: raw.channelId || raw.uploaderId || "",
+                thumbnail:
+                  (raw.thumbnail || raw.thumbnailUrl) ||
+                  `https://i.ytimg.com/vi/${(raw.id || raw.videoId)}/hqdefault.jpg`,
+                duration: String(raw.duration || "—"),
+                views: raw.viewCount || raw.views || 0,
+                uploadedAt:
+                  raw.publishedAt || raw.uploadDate || raw.uploaded || new Date().toISOString(),
+                url: raw.url || `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
+                isMemberOnly:
+                  raw.isMemberOnly || raw.membersOnly || false,
+              }));
+
+              // Final update using fallback data
+              this.updateData({
+                videos: videosFromJson,
+                loading: false,
+                fetching: false,
+                currentChannelTitle: null,
+              });
+
+              this.initialized = true;
+              this.saveCache();
+              return;
+            }
+          } catch (e) {
+            // ignore fallback errors and surface original response error below
+          }
+
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
