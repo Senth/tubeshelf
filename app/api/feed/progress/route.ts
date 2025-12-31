@@ -28,13 +28,17 @@ export async function GET(req: Request) {
     start(controller) {
       unsubscribe = subscribe((progress) => {
         try {
-            logger.debug("[SSE-progress] sending snapshot to", clientId, progress);
-          } catch {}
+          logger.debug(
+            "[SSE-progress] sending snapshot to",
+            clientId,
+            progress
+          );
+        } catch {}
         const data = `data: ${JSON.stringify(progress)}\n\n`;
         controller.enqueue(encoder.encode(data));
       });
       try {
-          logger.info("[SSE-progress] client subscribed:", clientId);
+        logger.info("[SSE-progress] client subscribed:", clientId);
       } catch {}
     },
     cancel() {

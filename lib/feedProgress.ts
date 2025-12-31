@@ -35,7 +35,9 @@ export function initProgress(total: number) {
   progress.sessionId = `${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-  logger.info(`[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`);
+  logger.info(
+    `[FeedProgress] initProgress: total=${total}, sessionId=${progress.sessionId}`
+  );
   notifySubscribers();
 }
 
@@ -46,7 +48,9 @@ export function updateProgress(
 ) {
   // Ignore updates from previous sessions
   if (sessionId && progress.sessionId && sessionId !== progress.sessionId) {
-    logger.debug(`[FeedProgress] Ignoring update from old session: ${sessionId}`);
+    logger.debug(
+      `[FeedProgress] Ignoring update from old session: ${sessionId}`
+    );
     return;
   }
   // Ignore updates if progress is not initialized
@@ -65,13 +69,16 @@ export function updateProgress(
   }
   progress.currentChannel = channelId;
   progress.currentChannelTitle = channelTitle;
-  logger.debug(`[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`);
+  logger.debug(
+    `[FeedProgress] ${progress.completed}/${progress.total}: ${channelTitle}`
+  );
   notifySubscribers();
 }
 
 // Return a sanitized snapshot (no functions) for JSON serialization
 export function getProgress() {
-  const { total, completed, currentChannel, currentChannelTitle, sessionId } = progress;
+  const { total, completed, currentChannel, currentChannelTitle, sessionId } =
+    progress;
   return { total, completed, currentChannel, currentChannelTitle, sessionId };
 }
 
@@ -91,7 +98,9 @@ export function subscribe(callback: (data: FeedProgress) => void) {
   callback(getProgress() as any);
 
   return () => {
-    progress.subscribers = progress.subscribers.filter((cb) => cb !== (callback as any));
+    progress.subscribers = progress.subscribers.filter(
+      (cb) => cb !== (callback as any)
+    );
   };
 }
 

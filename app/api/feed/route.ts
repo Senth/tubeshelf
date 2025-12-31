@@ -157,22 +157,25 @@ export async function GET(req: Request) {
         let latestUploadTime: string | undefined;
 
         // Fetch regular videos only if enabled
-            if (feedSettings.enableVideos) {
-              console.log(
-                `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
-              );
-              const result = await fetchChannelFeed(current);
-              meta = result.meta;
+        if (feedSettings.enableVideos) {
+          console.log(
+            `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
+          );
+          const result = await fetchChannelFeed(current);
+          meta = result.meta;
 
-              // If the fetch returned no videos and no meta title, treat as unavailable
-              if ((result.videos || []).length === 0 && !(meta && meta.title)) {
-                const subTitle = subscriptionMetadata.get(current)?.title || "(unknown)";
-                console.warn(`[Feed] Channel unavailable or returned 404: ${current} - ${subTitle}`);
-              }
+          // If the fetch returned no videos and no meta title, treat as unavailable
+          if ((result.videos || []).length === 0 && !(meta && meta.title)) {
+            const subTitle =
+              subscriptionMetadata.get(current)?.title || "(unknown)";
+            console.warn(
+              `[Feed] Channel unavailable or returned 404: ${current} - ${subTitle}`
+            );
+          }
 
-              // Update progress now that we have the channel title
-              const channelTitle = meta?.title || current;
-              updateProgress(current, channelTitle, sessionId);
+          // Update progress now that we have the channel title
+          const channelTitle = meta?.title || current;
+          updateProgress(current, channelTitle, sessionId);
 
           const regularVideos = result.videos;
           if (regularVideos.length > 0) {

@@ -297,7 +297,9 @@ export async function fetchChannelVideos(
     if (!response.ok) {
       // Explicitly log 404s so the container logs contain channel diagnostics
       if (response.status === 404) {
-        console.error(`[NewPipe] Channel page returned 404 for ${channelId} -> ${url}`);
+        console.error(
+          `[NewPipe] Channel page returned 404 for ${channelId} -> ${url}`
+        );
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }

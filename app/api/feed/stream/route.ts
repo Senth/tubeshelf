@@ -18,7 +18,10 @@ export async function GET(req: Request) {
   logger.debug(`[Stream Server] Timestamp: ${timestamp}`);
   logger.debug(`[Stream Server] forceRefresh: ${forceRefresh}`);
   logger.debug(`[Stream Server] Full URL: ${req.url}`);
-  logger.debug(`[Stream Server] Headers:`, Object.fromEntries(req.headers.entries()));
+  logger.debug(
+    `[Stream Server] Headers:`,
+    Object.fromEntries(req.headers.entries())
+  );
 
   // Get current settings (only video enable flag)
   let currentSettings = { enableVideos: true };
@@ -57,13 +60,16 @@ export async function GET(req: Request) {
 
   const customReadable = new ReadableStream({
     async start(controller) {
-        logger.info(
-          `[Stream Server] ${requestId} - Starting stream processing with ${channelIds.length} channels`
-        );
+      logger.info(
+        `[Stream Server] ${requestId} - Starting stream processing with ${channelIds.length} channels`
+      );
       try {
         const queue = [...channelIds];
         const feedSettings = currentSettings;
-                logger.debug(`[Stream Server] ${requestId} - Feed settings:`, feedSettings);
+        logger.debug(
+          `[Stream Server] ${requestId} - Feed settings:`,
+          feedSettings
+        );
 
         const worker = async () => {
           while (queue.length > 0) {
@@ -78,9 +84,14 @@ export async function GET(req: Request) {
                 meta = result.meta;
 
                 // If the fetch returned no videos and no meta title, log as unavailable/404
-                if ((result.videos || []).length === 0 && !(meta && meta.title)) {
+                if (
+                  (result.videos || []).length === 0 &&
+                  !(meta && meta.title)
+                ) {
                   const subTitle = channelTitleMap.get(current) || "(unknown)";
-                  console.warn(`[Stream] Channel unavailable or returned 404: ${current} - ${subTitle}`);
+                  console.warn(
+                    `[Stream] Channel unavailable or returned 404: ${current} - ${subTitle}`
+                  );
                 }
 
                 // Update progress now that we have the channel title
@@ -127,9 +138,13 @@ export async function GET(req: Request) {
 
         await Promise.all(Array.from({ length: CONCURRENCY }, worker));
         logger.info(
-          `[Stream Server] ${requestId} - Stream completed, sent ${sentItems.size} unique items at ${new Date().toISOString()}`
+          `[Stream Server] ${requestId} - Stream completed, sent ${
+            sentItems.size
+          } unique items at ${new Date().toISOString()}`
         );
-        logger.debug(`[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`);
+        logger.debug(
+          `[Stream Server] ${requestId} - ========== STREAM REQUEST COMPLETE ==========`
+        );
         try {
           // Ensure progress is finalized so clients don't see a stuck percentage
           const { completeProgress } = await import("@/lib/feedProgress");

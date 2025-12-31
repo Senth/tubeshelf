@@ -149,18 +149,29 @@ class FeedManager {
               const videosFromJson: Video[] = (items as any[]).map((raw) => ({
                 id: raw.id || raw.videoId,
                 title: raw.title || "Untitled",
-                channel: raw.channelTitle || raw.uploaderName || raw.channel || "Unknown Channel",
+                channel:
+                  raw.channelTitle ||
+                  raw.uploaderName ||
+                  raw.channel ||
+                  "Unknown Channel",
                 channelId: raw.channelId || raw.uploaderId || "",
                 thumbnail:
-                  (raw.thumbnail || raw.thumbnailUrl) ||
-                  `https://i.ytimg.com/vi/${(raw.id || raw.videoId)}/hqdefault.jpg`,
+                  raw.thumbnail ||
+                  raw.thumbnailUrl ||
+                  `https://i.ytimg.com/vi/${
+                    raw.id || raw.videoId
+                  }/hqdefault.jpg`,
                 duration: String(raw.duration || "—"),
                 views: raw.viewCount || raw.views || 0,
                 uploadedAt:
-                  raw.publishedAt || raw.uploadDate || raw.uploaded || new Date().toISOString(),
-                url: raw.url || `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
-                isMemberOnly:
-                  raw.isMemberOnly || raw.membersOnly || false,
+                  raw.publishedAt ||
+                  raw.uploadDate ||
+                  raw.uploaded ||
+                  new Date().toISOString(),
+                url:
+                  raw.url ||
+                  `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
+                isMemberOnly: raw.isMemberOnly || raw.membersOnly || false,
               }));
 
               // Final update using fallback data
