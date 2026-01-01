@@ -74,7 +74,7 @@ export default function Home() {
   const [feedTab, setFeedTab] = useState<FeedTab>("videos");
   const [videos, setVideos] = useState<Video[]>([]);
   const videosRef = useRef<Video[]>([]);
-  const loadingRef = useRef<boolean>(true);
+  const loadingRef = useRef<boolean>(false);
   const fetchingRef = useRef<boolean>(false);
   const errorRef = useRef<string | null>(null);
   const [watchLater, setWatchLater] = useState<WatchLaterItem[]>([]);
@@ -84,7 +84,7 @@ export default function Home() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hideWatched, setHideWatched] = useState(false);
   const [hideMemberOnly, setHideMemberOnly] = useState(false);
