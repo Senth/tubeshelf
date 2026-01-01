@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
-import useFeedProgress from "@/lib/useFeedProgress";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
@@ -97,43 +96,7 @@ export default function Home() {
   const [filterListId, setFilterListId] = useState<string>("all");
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { progress, liveChannelTitle, fallbackTotal, completedFallback } =
-    useFeedProgress(
-      showLoadingProgress,
-      subscriptionLists,
-      filterListId,
-      videos
-    );
 
-  const uiFallbackTotal = useMemo(() => {
-    if (filterListId === "all") {
-      const uniqueChannels = new Set<string>();
-      subscriptionLists.forEach((list) => {
-        list.subscriptions.forEach((sub) => uniqueChannels.add(sub.channelId));
-      });
-      // If subscription lists are empty (still loading), fall back to channels seen in `videos`
-      if (uniqueChannels.size > 0) return uniqueChannels.size;
-    } else {
-      const selectedList = subscriptionLists.find((l) => l.id === filterListId);
-      if (selectedList && selectedList.subscriptions.length > 0)
-        return selectedList.subscriptions.length;
-    }
-
-    // Fallback: count unique channelIds observed in streamed videos so the UI shows progress while lists load
-    const seen = new Set<string>();
-    videos.forEach((v) => {
-      if (v.channelId) seen.add(v.channelId);
-    });
-    return seen.size || 0;
-  }, [filterListId, subscriptionLists]);
-
-  const uiCompletedFallback = useMemo(() => {
-    const set = new Set<string>();
-    videos.forEach((v) => {
-      if (v.channelId) set.add(v.channelId);
-    });
-    return set.size;
-  }, [videos]);
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
@@ -885,30 +848,8 @@ export default function Home() {
                     />
                   </ClientOnly>
                 </Button>
-                {/* compute a fallback total (number of channels in current filter) so progress shows even when server reports 0 */}
                 <ClientOnly>
-                  <LoadingProgress
-                    isVisible={showLoadingProgress}
-                    progress={progress}
-                    liveChannelTitle={liveChannelTitle}
-                    fallbackTotal={(() => {
-                      if (filterListId === "all") {
-                        const uniqueChannels = new Set<string>();
-                        subscriptionLists.forEach((list) => {
-                          list.subscriptions.forEach((sub) => {
-                            uniqueChannels.add(sub.channelId);
-                          });
-                        });
-                        return uniqueChannels.size || null;
-                      } else {
-                        const selectedList = subscriptionLists.find(
-                          (l) => l.id === filterListId
-                        );
-                        return selectedList?.subscriptions.length || null;
-                      }
-                    })()}
-                    videos={videos}
-                  />
+                  <LoadingProgress isVisible={showLoadingProgress} />
                 </ClientOnly>
               </div>
               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
@@ -936,24 +877,6 @@ export default function Home() {
                     <span>•</span>
                     <span>{filteredVideos.length} videos</span>
                   </>
-                )}
-                {showLoadingProgress && (
-                  <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
-                    {(() => {
-                      const completed =
-                        progress?.completed ?? completedFallback ?? 0;
-                      const total = progress?.total ?? fallbackTotal;
-                      return (
-                        <>
-                          Loading:{" "}
-                          {liveChannelTitle ||
-                            progress?.currentChannelTitle ||
-                            "..."}{" "}
-                          ({completed}/{total})
-                        </>
-                      );
-                    })()}
-                  </span>
                 )}
               </div>
               {error && (

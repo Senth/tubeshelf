@@ -56,7 +56,7 @@ export async function fetchChannelFeed(
   channelId: string
 ): Promise<FetchResult> {
   const fetchMethod = await getFetchMethod();
-  
+
   if (fetchMethod === "rss") {
     // Use RSS fetcher (faster but limited to ~15 recent videos)
     return rssFetcher.fetchChannelFeedRss(channelId);

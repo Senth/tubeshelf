@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
-import { initProgress, updateProgress, getProgress } from "@/lib/feedProgress";
 
 const CONCURRENCY = 4;
 
@@ -122,10 +121,6 @@ export async function GET(req: Request) {
       .join(", ")
   );
 
-  // Initialize progress tracking
-  initProgress(channelIds.length);
-  const { sessionId } = getProgress();
-
   const items: any[] = [];
   // Use a shared queue to avoid race conditions causing duplicate processing
   const queue = [...channelIds];
@@ -172,10 +167,6 @@ export async function GET(req: Request) {
               `[Feed] Channel unavailable or returned 404: ${current} - ${subTitle}`
             );
           }
-
-          // Update progress now that we have the channel title
-          const channelTitle = meta?.title || current;
-          updateProgress(current, channelTitle, sessionId);
 
           const regularVideos = result.videos;
           if (regularVideos.length > 0) {

@@ -132,189 +132,56 @@ class FeedManager {
       }
 
       try {
-        const streamUrl = `/api/feed/stream?refresh=false`;
+        const response = await fetch(`/api/feed?refresh=false`);
 
-        const response = await fetch(streamUrl);
-
-        // If the stream endpoint returns a non-OK status (for example 404),
-        // fall back to the JSON feed endpoint so the UI still receives data
-        // instead of throwing an exception on refresh.
         if (!response.ok) {
-          try {
-            const fallbackUrl = `/api/feed?refresh=true`;
-            const fallbackRes = await fetch(fallbackUrl);
-            if (fallbackRes.ok) {
-              const json = await fallbackRes.json();
-              const items = json.items || json.items || [];
-              const videosFromJson: Video[] = (items as any[]).map((raw) => ({
-                id: raw.id || raw.videoId,
-                title: raw.title || "Untitled",
-                channel:
-                  raw.channelTitle ||
-                  raw.uploaderName ||
-                  raw.channel ||
-                  "Unknown Channel",
-                channelId: raw.channelId || raw.uploaderId || "",
-                thumbnail:
-                  raw.thumbnail ||
-                  raw.thumbnailUrl ||
-                  `https://i.ytimg.com/vi/${
-                    raw.id || raw.videoId
-                  }/hqdefault.jpg`,
-                duration: raw.duration,
-                views: raw.viewCount ?? raw.views,
-                uploadedAt:
-                  raw.publishedAt ||
-                  raw.uploadDate ||
-                  raw.uploaded ||
-                  new Date().toISOString(),
-                url:
-                  raw.url ||
-                  `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
-                isMemberOnly: raw.isMemberOnly || raw.membersOnly || false,
-              }));
-
-              // Final update using fallback data
-              this.updateData({
-                videos: videosFromJson,
-                loading: false,
-                fetching: false,
-                currentChannelTitle: null,
-              });
-
-              this.initialized = true;
-              this.saveCache();
-              return;
-            }
-          } catch (e) {
-            // ignore fallback errors and surface original response error below
-          }
-
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        if (!response.body) {
-          throw new Error("No response body");
-        }
+        const json = await response.json();
+        const items = json.items || [];
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+        const videos: Video[] = items.map((raw: any) => ({
+          id: raw.id || raw.videoId,
+          title: raw.title || "Untitled",
+          channel:
+            raw.channelTitle ||
+            raw.uploaderName ||
+            raw.channel ||
+            "Unknown Channel",
+          channelId: raw.channelId || raw.uploaderId || "",
+          thumbnail:
+            raw.thumbnail ||
+            raw.thumbnailUrl ||
+            `https://i.ytimg.com/vi/${raw.id || raw.videoId}/hqdefault.jpg`,
+          duration: raw.duration,
+          views: raw.viewCount ?? raw.views,
+          uploadedAt:
+            raw.publishedAt ||
+            raw.uploadDate ||
+            raw.uploaded ||
+            new Date().toISOString(),
+          url:
+            raw.url ||
+            `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
+          isMemberOnly: raw.isMemberOnly || raw.membersOnly || false,
+        }));
 
-        const videos: Video[] = [];
-
-        let buffer = "";
-        const videoIds = new Set<string>();
-        let batchCounter = 0;
-        const BATCH_SIZE = 10; // Update UI every 10 videos
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const rawVideo = JSON.parse(line.slice(6));
-                const videoId = rawVideo.id || rawVideo.videoId;
-
-                if (videoIds.has(videoId)) continue;
-                videoIds.add(videoId);
-
-                // Normalize thumbnail URL to basic format without expiring query params
-                const getThumbnailUrl = (
-                  thumb: string | undefined,
-                  id: string
-                ) => {
-                  if (!thumb)
-                    return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-                  // Extract video ID from thumbnail URL and use basic format
-                  const match = thumb.match(/\/vi\/([^\/]+)\//);
-                  return match
-                    ? `https://i.ytimg.com/vi/${match[1]}/hqdefault.jpg`
-                    : thumb;
-                };
-
-                const channelName =
-                  rawVideo.channelTitle ||
-                  rawVideo.uploaderName ||
-                  rawVideo.channel ||
-                  "";
-
-                // Update live current channel title so UI can show which channel items are arriving from
-                this.updateData({ currentChannelTitle: channelName });
-
-                const video: Video = {
-                  id: videoId,
-                  title: rawVideo.title || "Untitled",
-                  channel: channelName || "Unknown Channel",
-                  channelId: rawVideo.channelId || rawVideo.uploaderId || "",
-                  thumbnail: getThumbnailUrl(
-                    rawVideo.thumbnail || rawVideo.thumbnailUrl,
-                    videoId
-                  ),
-                  duration: rawVideo.duration,
-                  views: rawVideo.viewCount ?? rawVideo.views,
-                  uploadedAt:
-                    rawVideo.publishedAt ||
-                    rawVideo.uploadDate ||
-                    rawVideo.uploaded ||
-                    new Date().toISOString(),
-                  url:
-                    rawVideo.url ||
-                    `https://www.youtube.com/watch?v=${videoId}`,
-                  isMemberOnly:
-                    rawVideo.isMemberOnly ||
-                    rawVideo.membersOnly ||
-                    rawVideo.isMembersOnly ||
-                    rawVideo.isForMembers ||
-                    false,
-                };
-
-                videos.push(video);
-
-                batchCounter++;
-                // Update data progressively in batches
-                // Skip progressive updates if we have cached data to prevent flickering
-                if (batchCounter >= BATCH_SIZE) {
-                  if (!this.hasCachedData) {
-                    // Turn off loading after first batch to show videos
-                    this.updateData({
-                      videos: [...videos],
-                      loading: false, // Show videos as they arrive
-                    });
-                  }
-                  batchCounter = 0;
-                }
-              } catch (e) {
-                console.error("[FeedManager] Failed to parse line:", e);
-              }
-            }
-          }
-        }
-
-        // Final update for any remaining videos
         // Only update if data actually changed (prevents visual flicker when cache matches fresh data)
         const dataChanged =
           this.data.videos.length !== videos.length ||
-          // Also check if the video IDs changed (different videos, not just reordered)
           !this.arraysHaveSameIds(this.data.videos, videos);
 
         if (dataChanged || !this.hasCachedData) {
           this.updateData({
-            videos: [...videos],
+            videos,
             loading: false,
             fetching: false,
             currentChannelTitle: null,
           });
         } else {
           // Don't update arrays - keep showing cached data
-          // Just update fetching/loading states and clear live channel
+          // Just update fetching/loading states
           this.updateData({
             loading: false,
             fetching: false,
@@ -323,8 +190,6 @@ class FeedManager {
         }
 
         this.initialized = true;
-
-        // Save to cache for next page load
         this.saveCache();
       } catch (err) {
         console.error("[FeedManager] Error:", err);

@@ -11,7 +11,9 @@ import { FeedVideo, ChannelMeta, FetchResult } from "./videoFetcher";
 // YouTube RSS Feed URL patterns
 const getChannelRssUrl = (channelId: string): string => {
   // Use UULF prefix for long-form uploads only (excludes Shorts)
-  return `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${channelId.slice(2)}`;
+  return `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${channelId.slice(
+    2
+  )}`;
 };
 
 const getUserRssUrl = (handle: string): string => {
@@ -141,17 +143,18 @@ export async function fetchChannelFeedRss(
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/xml, text/xml, application/atom+xml, */*",
+        Accept: "application/xml, text/xml, application/atom+xml, */*",
       },
       cache: "no-store",
     });
 
     if (!response.ok) {
-      console.error(
-        `[RSS] ❌ HTTP error ${response.status} for ${channelId}`
-      );
+      console.error(`[RSS] ❌ HTTP error ${response.status} for ${channelId}`);
       const errorText = await response.text();
-      console.error(`[RSS] Error response body (first 500 chars):`, errorText.substring(0, 500));
+      console.error(
+        `[RSS] Error response body (first 500 chars):`,
+        errorText.substring(0, 500)
+      );
       return {
         videos: [],
         meta: {
@@ -169,9 +172,7 @@ export async function fetchChannelFeedRss(
 
     // Check if response is actually XML or an error page
     if (!xmlText.includes("<entry") && !xmlText.includes("<?xml")) {
-      console.error(
-        `[RSS] ❌ Response is not valid XML for ${channelId}`
-      );
+      console.error(`[RSS] ❌ Response is not valid XML for ${channelId}`);
       console.error(`[RSS] Response preview:`, xmlText.substring(0, 1000));
       return {
         videos: [],
@@ -192,9 +193,7 @@ export async function fetchChannelFeedRss(
     });
 
     if (!feed.feed || !feed.feed.entry || feed.feed.entry.length === 0) {
-      console.warn(
-        `[RSS] ⚠️  No entries found in feed for ${channelId}`
-      );
+      console.warn(`[RSS] ⚠️  No entries found in feed for ${channelId}`);
       return {
         videos: [],
         meta: {
@@ -215,15 +214,13 @@ export async function fetchChannelFeedRss(
           id: videoId,
           title: entry.title || "Untitled",
           channelId: entry["yt:channelid"] || channelId,
-          channelTitle:
-            entry.author || feed.feed?.title || "Unknown Channel",
+          channelTitle: entry.author || feed.feed?.title || "Unknown Channel",
           publishedAt:
             entry["yt:uploadedtime"] ||
             entry.pubDate ||
             new Date().toISOString(),
           updatedAt: entry["yt:uploadedtime"],
-          url:
-            entry.link || `https://www.youtube.com/watch?v=${videoId}`,
+          url: entry.link || `https://www.youtube.com/watch?v=${videoId}`,
           thumbnail: extractThumbnailUrl(
             videoId,
             entry["media:thumbnail"]?.$?.url
@@ -246,11 +243,8 @@ export async function fetchChannelFeedRss(
       },
     };
   } catch (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : String(error);
-    console.error(
-      `[RSS] ❌ Exception fetching ${channelId}: ${errorMsg}`
-    );
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[RSS] ❌ Exception fetching ${channelId}: ${errorMsg}`);
     console.error(`[RSS] Error stack:`, error);
     return {
       videos: [],
@@ -267,9 +261,7 @@ export async function fetchChannelFeedRss(
 /**
  * Fetch user feed using RSS
  */
-export async function fetchUserFeedRss(
-  handle: string
-): Promise<FetchResult> {
+export async function fetchUserFeedRss(handle: string): Promise<FetchResult> {
   try {
     const rssUrl = getUserRssUrl(handle);
     console.log(`[RSS] Fetching user from: ${rssUrl}`);
@@ -313,7 +305,10 @@ export async function fetchUserFeedRss(
           title: entry.title || "Untitled",
           channelId: entry["yt:channelid"] || "",
           channelTitle: entry.author || feed.feed?.title || "Unknown Channel",
-          publishedAt: entry["yt:uploadedtime"] || entry.pubDate || new Date().toISOString(),
+          publishedAt:
+            entry["yt:uploadedtime"] ||
+            entry.pubDate ||
+            new Date().toISOString(),
           updatedAt: entry["yt:uploadedtime"],
           url: entry.link || `https://www.youtube.com/watch?v=${videoId}`,
           thumbnail: extractThumbnailUrl(
@@ -341,8 +336,7 @@ export async function fetchUserFeedRss(
       },
     };
   } catch (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : String(error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[RSS] Failed to fetch user ${handle}: ${errorMsg}`);
     // Return empty result instead of throwing
     return {

@@ -221,7 +221,9 @@ export function SettingsPanel({
 
               {/* Fetch Method */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium">Fetch Method</label>
+                <label className="block text-sm font-medium">
+                  Fetch Method
+                </label>
                 <div className="flex gap-2">
                   {(["newpipe", "rss"] as const).map((method) => (
                     <button
