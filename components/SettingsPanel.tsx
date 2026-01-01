@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useContext, useEffect } from "react";
-import { X, AlertTriangle } from "lucide-react";
+import { X, AlertTriangle, HelpCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -40,6 +40,7 @@ export function SettingsPanel({
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<"all" | string>("all");
   const [version, setVersion] = useState<string>("...");
+  const [showFetchMethodInfo, setShowFetchMethodInfo] = useState(false);
 
   useEffect(() => {
     // Sync local state when settings prop changes
@@ -221,9 +222,19 @@ export function SettingsPanel({
 
               {/* Fetch Method */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium">
-                  Fetch Method
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="block text-sm font-medium">
+                    Feed Loading Method
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowFetchMethodInfo(!showFetchMethodInfo)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title="More information"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   {(["newpipe", "rss"] as const).map((method) => (
                     <button
@@ -241,12 +252,66 @@ export function SettingsPanel({
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {local.fetchMethod === "newpipe"
-                    ? "Comprehensive fetching with full metadata (duration, views). Slower but more complete."
-                    : "Fast RSS-based fetching. Limited to ~15 recent videos per channel. No duration data. ⚡"}
-                </p>
               </div>
+
+              {/* Info Popup Modal */}
+              {showFetchMethodInfo && (
+                <div
+                  className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4"
+                  onClick={() => setShowFetchMethodInfo(false)}
+                >
+                  <div
+                    className="bg-card border border-border rounded-lg shadow-xl max-w-md p-4"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold">
+                        Feed Loading Methods
+                      </h3>
+                      <button
+                        onClick={() => setShowFetchMethodInfo(false)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        <strong className="text-foreground">
+                          Do you think feed loading is too slow?
+                        </strong>{" "}
+                        If so, try enabling fast loading.
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Tubeshelf offers two feed loading methods:
+                      </p>
+                      <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc leading-relaxed">
+                        <li>
+                          <strong className="text-foreground">Default:</strong>{" "}
+                          Fetching the whole subscription channel, which is slow
+                          but complete.
+                        </li>
+                        <li>
+                          <strong className="text-foreground">
+                            Fast Mode:
+                          </strong>{" "}
+                          Using YouTube's RSS feed, which is fast but usually
+                          not complete.
+                        </li>
+                      </ul>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        The difference is that fast mode usually lacks some
+                        information like duration or view count, and may return
+                        fewer items (~15 recent videos).{" "}
+                        <strong className="text-foreground">
+                          So the choice boils down to what you prefer: speed or
+                          complete information.
+                        </strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Theme */}
               <div className="space-y-2">
