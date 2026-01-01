@@ -161,8 +161,8 @@ class FeedManager {
                   `https://i.ytimg.com/vi/${
                     raw.id || raw.videoId
                   }/hqdefault.jpg`,
-                duration: String(raw.duration || "—"),
-                views: raw.viewCount || raw.views || 0,
+                duration: raw.duration,
+                views: raw.viewCount ?? raw.views,
                 uploadedAt:
                   raw.publishedAt ||
                   raw.uploadDate ||
@@ -258,8 +258,8 @@ class FeedManager {
                     rawVideo.thumbnail || rawVideo.thumbnailUrl,
                     videoId
                   ),
-                  duration: String(rawVideo.duration || "—"),
-                  views: rawVideo.viewCount || rawVideo.views || 0,
+                  duration: rawVideo.duration,
+                  views: rawVideo.viewCount ?? rawVideo.views,
                   uploadedAt:
                     rawVideo.publishedAt ||
                     rawVideo.uploadDate ||

@@ -6,6 +6,7 @@ export interface AppSettings {
   theme: "light" | "dark" | "system";
   enableVideos: boolean;
   hasCompletedWelcome: boolean;
+  fetchMethod: "newpipe" | "rss";
 }
 
 export const defaultSettings: AppSettings = {
@@ -13,6 +14,7 @@ export const defaultSettings: AppSettings = {
   theme: "system",
   enableVideos: true,
   hasCompletedWelcome: false,
+  fetchMethod: "newpipe",
 };
 
 const dataDir = "data";

@@ -1,10 +1,14 @@
 /**
- * Video fetcher using NewPipe
+ * Video fetcher with switchable backends
  *
- * This module provides video fetching from YouTube using NewPipe-style extraction.
+ * This module provides video fetching from YouTube using either:
+ * - NewPipe-style extraction (default, comprehensive)
+ * - RSS feeds (fast, limited to recent videos)
  */
 
 import * as newpipe from "./newpipe";
+import * as rssFetcher from "./rssFetcher";
+import { readSettings } from "./settingsStore";
 
 export interface FeedVideo {
   id: string;
@@ -34,16 +38,36 @@ export interface FetchResult {
 }
 
 /**
- * Fetch channel feed (regular videos)
+ * Get the current fetch method from settings
+ */
+async function getFetchMethod(): Promise<"newpipe" | "rss"> {
+  try {
+    const settings = await readSettings();
+    return settings.fetchMethod || "newpipe";
+  } catch {
+    return "newpipe"; // Default to NewPipe on error
+  }
+}
+
+/**
+ * Fetch channel feed using configured method (NewPipe or RSS)
  */
 export async function fetchChannelFeed(
   channelId: string
 ): Promise<FetchResult> {
-  const result = await newpipe.fetchChannelFeed(channelId);
-  return {
-    videos: result.videos.map(newpipe.newPipeToRSSFormat),
-    meta: result.meta,
-  };
+  const fetchMethod = await getFetchMethod();
+  
+  if (fetchMethod === "rss") {
+    // Use RSS fetcher (faster but limited to ~15 recent videos)
+    return rssFetcher.fetchChannelFeedRss(channelId);
+  } else {
+    // Use NewPipe fetcher (default, more comprehensive)
+    const result = await newpipe.fetchChannelFeed(channelId);
+    return {
+      videos: result.videos.map(newpipe.newPipeToRSSFormat),
+      meta: result.meta,
+    };
+  }
 }
 
 /**

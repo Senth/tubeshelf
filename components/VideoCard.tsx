@@ -196,15 +196,14 @@ export function VideoCard({
 
         {/* Duration badge - top right */}
         {(() => {
-          // Show badge if duration display is enabled
-          if (!showDurationPlaceholder) {
+          // Show badge only if duration display is enabled AND duration exists
+          if (!showDurationPlaceholder || !duration) {
             return null;
           }
 
-          // Show actual duration if available, otherwise show placeholder "-"
           return (
             <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-              {duration || "-"}
+              {duration}
             </div>
           );
         })()}
@@ -278,7 +277,7 @@ export function VideoCard({
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2 line-clamp-1">
           {views && <span>{formatViewCount(views)} views</span>}
-          {uploadedAt && <span>•</span>}
+          {views && uploadedAt && <span>•</span>}
           {uploadedAt && <span>{formatTimeAgo(uploadedAt)}</span>}
         </div>
       </div>

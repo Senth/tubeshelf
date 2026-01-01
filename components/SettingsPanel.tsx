@@ -219,6 +219,33 @@ export function SettingsPanel({
                 </div>
               </div>
 
+              {/* Fetch Method */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">Fetch Method</label>
+                <div className="flex gap-2">
+                  {(["newpipe", "rss"] as const).map((method) => (
+                    <button
+                      key={method}
+                      onClick={() =>
+                        setLocal({ ...local, fetchMethod: method })
+                      }
+                      className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+                        local.fetchMethod === method
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary hover:bg-secondary/80"
+                      }`}
+                    >
+                      {method === "newpipe" ? "Default" : "Fast Mode"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {local.fetchMethod === "newpipe"
+                    ? "Comprehensive fetching with full metadata (duration, views). Slower but more complete."
+                    : "Fast RSS-based fetching. Limited to ~15 recent videos per channel. No duration data. ⚡"}
+                </p>
+              </div>
+
               {/* Theme */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Theme</label>
@@ -242,8 +269,6 @@ export function SettingsPanel({
                   ))}
                 </div>
               </div>
-
-              {/* Content Filters removed - videos are always enabled */}
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
