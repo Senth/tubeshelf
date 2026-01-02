@@ -317,7 +317,7 @@ export function SettingsPanel({
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Theme</label>
                 <div className="flex gap-2">
-                  {(["light", "dark", "system"] as const).map((theme) => (
+                  {(["system", "light", "dark"] as const).map((theme) => (
                     <button
                       key={theme}
                       onClick={() => {

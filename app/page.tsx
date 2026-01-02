@@ -229,33 +229,33 @@ export default function Home() {
 
   // Initialize data on mount using singleton feed manager
   useEffect(() => {
-    // Subscribe to feed manager
-    const unsubscribe = feedManager.subscribe((feedData) => {
-      if (!arraysHaveSameIds(videosRef.current, feedData.videos)) {
-        setVideos(feedData.videos);
-        videosRef.current = feedData.videos;
-        // Debug: log JSON sample of incoming feed items so we can inspect keys
-        // (debugging removed)
-      }
+    // Subscribe to feed manager (skip auto-init, we'll initialize manually based on welcome state)
+    const unsubscribe = feedManager.subscribe(
+      (feedData) => {
+        if (!arraysHaveSameIds(videosRef.current, feedData.videos)) {
+          setVideos(feedData.videos);
+          videosRef.current = feedData.videos;
+        }
 
-      // Update loading/fetching/error when values change
-      if (loadingRef.current !== feedData.loading) {
-        setLoading(feedData.loading);
-        loadingRef.current = feedData.loading;
-      }
+        // Update loading/fetching/error when values change
+        if (loadingRef.current !== feedData.loading) {
+          setLoading(feedData.loading);
+          loadingRef.current = feedData.loading;
+        }
 
-      if (fetchingRef.current !== feedData.fetching) {
-        setShowLoadingProgress(feedData.fetching);
-        fetchingRef.current = feedData.fetching;
-      }
+        if (fetchingRef.current !== feedData.fetching) {
+          // Don't show loading progress during welcome wizard
+          setShowLoadingProgress(feedData.fetching && !showWelcomeWizard);
+          fetchingRef.current = feedData.fetching;
+        }
 
-      // live channel title is handled by the progress hook
-
-      if (errorRef.current !== feedData.error) {
-        setError(feedData.error);
-        errorRef.current = feedData.error;
-      }
-    });
+        if (errorRef.current !== feedData.error) {
+          setError(feedData.error);
+          errorRef.current = feedData.error;
+        }
+      },
+      true // Skip auto-init
+    );
 
     // Load other settings
     const init = async () => {
@@ -266,6 +266,10 @@ export default function Home() {
         // Check if this is first time user
         if (!appSettings.hasCompletedWelcome) {
           setShowWelcomeWizard(true);
+          // Don't auto-initialize feed for first-time users
+        } else {
+          // For returning users, initialize feed immediately
+          feedManager.initialize();
         }
 
         // Load subscription lists
@@ -569,18 +573,19 @@ export default function Home() {
     setWelcomeCompleted(true);
 
     try {
-      // Apply wizard settings (including hasCompletedWelcome flag)
+      // Apply wizard settings (including hasCompletedWelcome flag and fetchMethod)
       const updates: Partial<typeof settings> = {
         enableVideos: options.enableVideos,
         hasCompletedWelcome: true,
+        fetchMethod: options.fetchMethod,
       };
 
       await updateSettings(updates);
       const freshSettings = await getSettings();
       setSettings(freshSettings);
 
-      // Refresh feed with new settings
-      await refreshData(true);
+      // Initialize feedManager (will fetch if there are subscriptions, otherwise return empty)
+      await feedManager.initialize();
     } catch (err) {
       console.error("Failed to apply welcome wizard settings:", err);
     }
@@ -608,6 +613,13 @@ export default function Home() {
         file.name.endsWith(".opml") ? "opml" : "json",
         currentListId
       );
+
+      // Reload subscription lists to update the counter
+      const listsRes = await fetch("/api/subscription-lists");
+      if (listsRes.ok) {
+        const listsData = await listsRes.json();
+        setSubscriptionLists(listsData.lists || []);
+      }
     } catch (err) {
       throw new Error(
         err instanceof Error ? err.message : "Failed to import file"

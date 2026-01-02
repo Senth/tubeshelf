@@ -21,6 +21,7 @@ interface WelcomeWizardProps {
 export interface WelcomeOptions {
   enableVideos: boolean;
   userAcceptedWelcome: boolean;
+  fetchMethod: "newpipe" | "rss";
 }
 
 export function WelcomeWizard({
@@ -38,6 +39,7 @@ export function WelcomeWizard({
   const [options, setOptions] = useState<WelcomeOptions>({
     enableVideos: true,
     userAcceptedWelcome: true,
+    fetchMethod: "newpipe",
   });
   const [wantToImport, setWantToImport] = useState(false);
 
@@ -54,11 +56,7 @@ export function WelcomeWizard({
     try {
       await onImportFile(file);
       setImportSuccess(true);
-      // Move to next step after successful import
-      setTimeout(() => {
-        setCurrentStep(currentStep + 1);
-        setImportSuccess(false);
-      }, 1500);
+      // Don't auto-advance - let user click Next when ready
     } catch (err) {
       setImportError(
         err instanceof Error ? err.message : "Failed to import file"
@@ -171,90 +169,123 @@ export function WelcomeWizard({
         </div>
       ),
     },
-    ...(wantToImport
-      ? [
-          {
-            title: "Upload Subscriptions",
-            description: "Import your subscription file",
-            content: (
-              <div className="space-y-4">
-                <div
-                  onDrop={handleDrop}
-                  onDragOver={(e) => e.preventDefault()}
-                  className="border-2 border-dashed border-primary/30 rounded-xl p-10 text-center hover:bg-primary/5 transition-all cursor-pointer group"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="w-10 h-10 text-primary/60 group-hover:text-primary mx-auto mb-4 transition-colors" />
-                  <p className="font-semibold text-foreground mb-1">
-                    Drop your file here
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    or click to browse
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Supports OPML and TubeShelf XML files
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".opml,.xml"
-                    onChange={handleFileInputChange}
-                    className="hidden"
-                  />
-                </div>
-                {importSuccess && (
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-sm text-green-700 dark:text-green-400 flex items-center gap-3 animate-in fade-in">
-                    <Check className="w-5 h-5 flex-shrink-0" />
-                    <span className="font-medium">
-                      Subscriptions imported successfully!
-                    </span>
-                  </div>
-                )}
-                {importError && (
-                  <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-sm text-destructive font-medium">
-                    ⚠️ {importError}
-                  </div>
-                )}
-                {isImporting && (
-                  <div className="text-center py-6">
-                    <p className="text-muted-foreground">
-                      Importing subscriptions...
-                    </p>
-                  </div>
-                )}
-              </div>
-            ),
-          },
-        ]
-      : []),
     {
-      title: "Content Types",
-      description: "What content do you want to see?",
+      title: "Upload Subscriptions",
+      description: "Import your subscription file",
+      content: (
+        <div className="space-y-4">
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className="border-2 border-dashed border-primary/30 rounded-xl p-10 text-center hover:bg-primary/5 transition-all cursor-pointer group"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="w-10 h-10 text-primary/60 group-hover:text-primary mx-auto mb-4 transition-colors" />
+            <p className="font-semibold text-foreground mb-1">
+              Drop your file here
+            </p>
+            <p className="text-sm text-muted-foreground mb-3">
+              or click to browse
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Supports OPML and TubeShelf XML files
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".opml,.xml"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+          </div>
+          <div className="bg-secondary/50 rounded-lg p-3 border border-border/50">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              <strong className="text-foreground">Tip:</strong> You can import
+              multiple files here. All subscriptions will be combined. Later,
+              you can organize them into separate lists in the subscription
+              manager.
+            </p>
+          </div>
+          {importSuccess && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-sm text-green-700 dark:text-green-400 flex items-center gap-3 animate-in fade-in">
+              <Check className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium">
+                Subscriptions imported successfully!
+              </span>
+            </div>
+          )}
+          {importError && (
+            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-sm text-destructive font-medium">
+              ⚠️ {importError}
+            </div>
+          )}
+          {isImporting && (
+            <div className="text-center py-6">
+              <p className="text-muted-foreground">
+                Importing subscriptions...
+              </p>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: "Feed Loading Method",
+      description: "Choose your preferred loading speed",
       content: (
         <div className="space-y-6">
-          <p className="text-sm text-muted-foreground">
-            Choose which types of content to display in your feed.
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            <strong className="text-foreground">
+              Choose how to load your feed.
+            </strong>{" "}
+            Fast mode is quicker but shows less information. You can change this
+            anytime in settings.
           </p>
           <div className="space-y-3">
-            <label className="flex items-center gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-secondary/50 transition-all hover:border-primary/50 group">
+            <label className="flex items-start gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-secondary/50 transition-all hover:border-primary/50 group">
               <input
-                type="checkbox"
-                checked={options.enableVideos}
-                onChange={(e) =>
-                  setOptions({ ...options, enableVideos: e.target.checked })
+                type="radio"
+                name="fetchMethod"
+                checked={options.fetchMethod === "newpipe"}
+                onChange={() =>
+                  setOptions({ ...options, fetchMethod: "newpipe" })
                 }
-                className="w-5 h-5 cursor-pointer accent-primary"
+                className="w-5 h-5 mt-0.5 cursor-pointer accent-primary"
               />
               <div className="flex-1">
-                <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                  Regular Videos
+                <p className="font-semibold text-foreground group-hover:text-primary transition-colors mb-1">
+                  Default Mode
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  Full-length videos from your channels
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Comprehensive fetching with full metadata (duration, views,
+                  etc.). Slower but more complete.
                 </p>
               </div>
-              <span className="text-xl">🎥</span>
             </label>
+            <label className="flex items-start gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-secondary/50 transition-all hover:border-primary/50 group">
+              <input
+                type="radio"
+                name="fetchMethod"
+                checked={options.fetchMethod === "rss"}
+                onChange={() => setOptions({ ...options, fetchMethod: "rss" })}
+                className="w-5 h-5 mt-0.5 cursor-pointer accent-primary"
+              />
+              <div className="flex-1">
+                <p className="font-semibold text-foreground group-hover:text-primary transition-colors mb-1">
+                  Fast Mode
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Using YouTube's RSS feed. Much faster but lacks duration/view
+                  count and may return fewer items (~15 recent videos).
+                </p>
+              </div>
+            </label>
+          </div>
+          <div className="bg-secondary/50 rounded-lg p-3 border border-border/50">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              <strong className="text-foreground">The choice:</strong> Speed or
+              complete information. You can change this anytime in settings.
+            </p>
           </div>
         </div>
       ),
@@ -285,13 +316,16 @@ export function WelcomeWizard({
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
 
+  // Calculate total visible steps for progress bar
+  const totalSteps = wantToImport ? steps.length : steps.length - 1;
+
   const handleNext = () => {
     if (isLastStep) {
       onComplete(options);
     } else {
-      // Skip import step if not importing
+      // Skip upload step (index 2) if not importing
       if (currentStep === 1 && !wantToImport) {
-        setCurrentStep(currentStep + 2);
+        setCurrentStep(3); // Jump to fetch method step
       } else {
         setCurrentStep(currentStep + 1);
       }
@@ -299,9 +333,9 @@ export function WelcomeWizard({
   };
 
   const handleBack = () => {
-    // Skip import step if going back and not importing
+    // Skip upload step (index 2) when going back if not importing
     if (currentStep === 3 && !wantToImport) {
-      setCurrentStep(currentStep - 2);
+      setCurrentStep(1); // Jump back to import question step
     } else {
       setCurrentStep(currentStep - 1);
     }
@@ -315,7 +349,11 @@ export function WelcomeWizard({
           <div className="space-y-3">
             <div className="inline-block">
               <span className="text-xs font-semibold text-primary bg-primary/10 px-3 py-1 rounded-full">
-                Step {currentStep + 1} of {steps.length}
+                Step{" "}
+                {wantToImport || currentStep < 2
+                  ? currentStep + 1
+                  : currentStep}{" "}
+                of {totalSteps}
               </span>
             </div>
             <h2 className="text-3xl font-bold text-foreground">{step.title}</h2>
@@ -329,7 +367,15 @@ export function WelcomeWizard({
         <div className="h-1 bg-secondary">
           <div
             className="h-full bg-primary transition-all duration-300"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
+            style={{
+              width: `${
+                ((wantToImport || currentStep < 2
+                  ? currentStep + 1
+                  : currentStep) /
+                  totalSteps) *
+                100
+              }%`,
+            }}
           />
         </div>
 
