@@ -340,28 +340,6 @@ export default function Home() {
     }
   };
 
-  // Save user state to server
-  const saveUserState = async () => {
-    try {
-      await fetch("/api/user-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          watchedVideos: Array.from(watchedVideos),
-          hideWatched,
-          hideMemberOnly,
-          filterListId,
-          watchLater: watchLater.map((item) => ({
-            ...item,
-            addedAt: item.addedAt.toISOString(),
-          })),
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to save user state:", e);
-    }
-  };
-
   // Toggle and persist hideMemberOnly
   const toggleHideMemberOnlyPersist = async (checked: boolean) => {
     const previousValue = hideMemberOnly;
@@ -550,18 +528,6 @@ export default function Home() {
     // Don't cleanup subscription - let it persist across remounts
     // Only cleanup on actual page navigation
   }, []);
-
-  // Save user state when it changes
-  useEffect(() => {
-    if (
-      watchedVideos.size > 0 ||
-      hideWatched ||
-      hideMemberOnly ||
-      watchLater.length > 0
-    ) {
-      saveUserState();
-    }
-  }, [watchedVideos, hideWatched, hideMemberOnly, filterListId, watchLater]);
 
   // Save hideWatched preference to localStorage
   useEffect(() => {
