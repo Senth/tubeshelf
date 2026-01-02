@@ -41,6 +41,7 @@ interface VideoCardProps {
   watched?: boolean;
   videoUrl?: string;
   showDurationPlaceholder?: boolean;
+  isMemberOnly?: boolean;
   // Render inline action buttons under the card (used in Watch Later section)
   inlineActions?: boolean;
   onWatch?: () => void;
@@ -60,6 +61,7 @@ export function VideoCard({
   watched,
   videoUrl,
   showDurationPlaceholder,
+  isMemberOnly = false,
   inlineActions,
   onWatch,
   onWatchLater,
@@ -282,8 +284,14 @@ export function VideoCard({
         </p>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2 line-clamp-1">
-          {views && <span>{formatViewCount(views)} views</span>}
-          {views && uploadedAt && <span>•</span>}
+          {isMemberOnly ? (
+            <span className="px-1.5 py-px bg-green-500/20 text-green-500 rounded text-xs font-medium">
+              Member
+            </span>
+          ) : (
+            views && <span>{formatViewCount(views)} views</span>
+          )}
+          {uploadedAt && (isMemberOnly || views) && <span>•</span>}
           {uploadedAt && <span>{formatTimeAgo(uploadedAt)}</span>}
         </div>
       </div>

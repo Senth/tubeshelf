@@ -1388,6 +1388,7 @@ export default function Home() {
                                 watched={watchedVideos.has(video.id)}
                                 videoUrl={video.url}
                                 showDurationPlaceholder={true}
+                                isMemberOnly={video.isMemberOnly}
                                 onWatch={() => handleWatchVideo(video.id)}
                                 onWatchLater={() =>
                                   handleAddToWatchLater(video)
