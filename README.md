@@ -5,7 +5,7 @@
     <img alt="TubeShelf icon" src="public/icon-flat.svg" width="140" height="140">
   </picture>
   <h1>TubeShelf</h1>
-  <h3>Self-hosted YouTube subscription feed<br />Chronological, distraction-free, yours.</h3>
+  <h3>Self-hosted YouTube subscription feed<br />chronological, distraction-free, yours.</h3>
 </div>
 
 <p align="center">
@@ -60,7 +60,8 @@ Access the web UI at **http://localhost:3000**
 
 ## Why TubeShelf?
 
-Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal—a distraction-free subscription feed without a Google account.
+Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal:
+A distraction-free subscription feed without a Google account.
 
 It fetches videos from your subscriptions and displays them chronologically. Click any video to open it on YouTube.
 
