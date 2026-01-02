@@ -174,6 +174,26 @@ export function WelcomeWizard({
       description: "Import your subscription file",
       content: (
         <div className="space-y-4">
+          {importSuccess && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-sm text-green-700 dark:text-green-400 flex items-center gap-3 animate-in fade-in">
+              <Check className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium">
+                Subscriptions imported successfully!
+              </span>
+            </div>
+          )}
+          {importError && (
+            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-sm text-destructive font-medium">
+              ⚠️ {importError}
+            </div>
+          )}
+          {isImporting && (
+            <div className="text-center py-6">
+              <p className="text-muted-foreground">
+                Importing subscriptions...
+              </p>
+            </div>
+          )}
           <div
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
@@ -206,26 +226,6 @@ export function WelcomeWizard({
               manager.
             </p>
           </div>
-          {importSuccess && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-sm text-green-700 dark:text-green-400 flex items-center gap-3 animate-in fade-in">
-              <Check className="w-5 h-5 flex-shrink-0" />
-              <span className="font-medium">
-                Subscriptions imported successfully!
-              </span>
-            </div>
-          )}
-          {importError && (
-            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-sm text-destructive font-medium">
-              ⚠️ {importError}
-            </div>
-          )}
-          {isImporting && (
-            <div className="text-center py-6">
-              <p className="text-muted-foreground">
-                Importing subscriptions...
-              </p>
-            </div>
-          )}
         </div>
       ),
     },
