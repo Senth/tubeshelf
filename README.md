@@ -60,7 +60,7 @@ Access the web UI at **http://localhost:3000**
 
 ## Why TubeShelf?
 
-Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal:
+Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal:  
 A distraction-free subscription feed without a Google account.
 
 It fetches videos from your subscriptions and displays them chronologically. Click any video to open it on YouTube.
