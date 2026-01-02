@@ -86,6 +86,12 @@ export default function Home() {
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  const [highlightedVideoIndex, setHighlightedVideoIndex] = useState<
+    number | null
+  >(null);
+  const videoRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -106,6 +112,160 @@ export default function Home() {
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
   }, [showMoreMenu]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't interfere when typing in inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        // Allow Escape to blur the input and clear search
+        if (e.key === "Escape" && e.target instanceof HTMLInputElement) {
+          e.target.blur();
+          if (searchQuery) {
+            setSearchQuery("");
+          }
+        }
+        return;
+      }
+
+      // Don't interfere when modals are open
+      if (showSubscriptions || showSettings || showWelcomeWizard) {
+        // Allow Escape to close modals
+        if (e.key === "Escape") {
+          setShowSubscriptions(false);
+          setShowSettings(false);
+          setShowKeyboardHelp(false);
+        }
+        return;
+      }
+
+      // Close keyboard help with Escape or ?
+      if (e.key === "Escape" || e.key === "?") {
+        if (showKeyboardHelp) {
+          e.preventDefault();
+          setShowKeyboardHelp(false);
+          return;
+        }
+        // ? toggles the help
+        if (e.key === "?") {
+          e.preventDefault();
+          setShowKeyboardHelp(true);
+          return;
+        }
+      }
+
+      // Only work on home page
+      if (currentPage !== "home") return;
+
+      // "/" to focus search
+      if (e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      const currentVideos = filteredVideos;
+      if (currentVideos.length === 0) return;
+
+      switch (e.key.toLowerCase()) {
+        case "j": // Next video
+          e.preventDefault();
+          setHighlightedVideoIndex((prev) => {
+            const nextIndex =
+              prev === null ? 0 : Math.min(prev + 1, currentVideos.length - 1);
+            // Scroll to video
+            setTimeout(() => {
+              const el = videoRefs.current.get(nextIndex);
+              if (el) {
+                el.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+              }
+            }, 0);
+            return nextIndex;
+          });
+          break;
+
+        case "k": // Previous video
+          e.preventDefault();
+          setHighlightedVideoIndex((prev) => {
+            const nextIndex = prev === null ? 0 : Math.max(prev - 1, 0);
+            // Scroll to video
+            setTimeout(() => {
+              const el = videoRefs.current.get(nextIndex);
+              if (el) {
+                el.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+              }
+            }, 0);
+            return nextIndex;
+          });
+          break;
+
+        case "enter": // Open highlighted video
+          e.preventDefault();
+          if (highlightedVideoIndex !== null) {
+            const video = currentVideos[highlightedVideoIndex];
+            if (video) {
+              window.open(video.url, "_blank");
+              handleWatchVideo(video.id);
+            }
+          }
+          break;
+
+        case "w": // Toggle watched
+          e.preventDefault();
+          if (highlightedVideoIndex !== null) {
+            const video = currentVideos[highlightedVideoIndex];
+            if (video) {
+              handleToggleWatched(video.id);
+            }
+          }
+          break;
+
+        case "l": // Add to watch later
+          e.preventDefault();
+          if (highlightedVideoIndex !== null) {
+            const video = currentVideos[highlightedVideoIndex];
+            if (video) {
+              handleAddToWatchLater(video);
+            }
+          }
+          break;
+
+        case "escape": // Clear highlight and search
+          e.preventDefault();
+          setHighlightedVideoIndex(null);
+          if (searchQuery) {
+            setSearchQuery("");
+          }
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    filteredVideos,
+    highlightedVideoIndex,
+    currentPage,
+    showSubscriptions,
+    showSettings,
+    showWelcomeWizard,
+    showKeyboardHelp,
+    searchQuery,
+  ]);
+
+  // Reset highlight when videos change
+  useEffect(() => {
+    setHighlightedVideoIndex(null);
+  }, [filteredVideos]);
 
   const refreshData = async (forceRefresh = false) => {
     setError(null);
@@ -664,12 +824,18 @@ export default function Home() {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 </ClientOnly>
                 <Input
+                  ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search videos..."
-                  className="w-full text-sm pl-10 pr-9"
+                  className="w-full text-sm pl-10 pr-12"
                 />
+                {!searchQuery && (
+                  <kbd className="absolute right-3 top-1/2 transform -translate-y-1/2 px-2 py-0.5 text-xs bg-secondary border border-border rounded font-mono text-muted-foreground pointer-events-none">
+                    /
+                  </kbd>
+                )}
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery("")}
@@ -686,6 +852,103 @@ export default function Home() {
 
             {/* Right Actions */}
             <div className="flex items-center gap-2">
+              {/* Keyboard shortcuts help */}
+              <div className="relative">
+                <Button
+                  onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
+                  variant="ghost"
+                  size="icon"
+                  title="Keyboard shortcuts"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M6 8h.01" />
+                    <path d="M10 8h.01" />
+                    <path d="M14 8h.01" />
+                    <path d="M18 8h.01" />
+                    <path d="M8 12h.01" />
+                    <path d="M12 12h.01" />
+                    <path d="M16 12h.01" />
+                    <path d="M7 16h10" />
+                  </svg>
+                </Button>
+                {showKeyboardHelp && (
+                  <div className="absolute right-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
+                    <h3 className="font-semibold mb-3 text-sm">
+                      Keyboard Shortcuts
+                    </h3>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Focus search
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          /
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Next video
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          J
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Previous video
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          K
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Open video
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          Enter
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Toggle watched
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          W
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Watch later
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          L
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Clear / Close
+                        </span>
+                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
+                          Esc
+                        </kbd>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <Button
                 onClick={() => setShowSubscriptions(true)}
                 variant="secondary"
@@ -958,30 +1221,49 @@ export default function Home() {
                           `Rendering ${filteredVideos.length} video cards`
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                          {filteredVideos.map((video) => (
-                            <VideoCard
+                          {filteredVideos.map((video, index) => (
+                            <div
                               key={video.id}
-                              id={video.id}
-                              title={video.title}
-                              channel={video.channel}
-                              thumbnail={video.thumbnail}
-                              duration={video.duration}
-                              uploadedAt={video.uploadedAt}
-                              views={video.views}
-                              watched={watchedVideos.has(video.id)}
-                              videoUrl={video.url}
-                              showDurationPlaceholder={true}
-                              onWatch={() => handleWatchVideo(video.id)}
-                              onWatchLater={() => handleAddToWatchLater(video)}
-                              onMarkWatched={() =>
-                                handleToggleWatched(video.id)
-                              }
-                              onChannelClick={(channelName) =>
-                                setSearchQuery(
-                                  searchQuery === channelName ? "" : channelName
-                                )
-                              }
-                            />
+                              ref={(el) => {
+                                if (el) {
+                                  videoRefs.current.set(index, el);
+                                } else {
+                                  videoRefs.current.delete(index);
+                                }
+                              }}
+                              className={`transition-all duration-200 rounded-xl ${
+                                highlightedVideoIndex === index
+                                  ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                                  : ""
+                              }`}
+                            >
+                              <VideoCard
+                                id={video.id}
+                                title={video.title}
+                                channel={video.channel}
+                                thumbnail={video.thumbnail}
+                                duration={video.duration}
+                                uploadedAt={video.uploadedAt}
+                                views={video.views}
+                                watched={watchedVideos.has(video.id)}
+                                videoUrl={video.url}
+                                showDurationPlaceholder={true}
+                                onWatch={() => handleWatchVideo(video.id)}
+                                onWatchLater={() =>
+                                  handleAddToWatchLater(video)
+                                }
+                                onMarkWatched={() =>
+                                  handleToggleWatched(video.id)
+                                }
+                                onChannelClick={(channelName) =>
+                                  setSearchQuery(
+                                    searchQuery === channelName
+                                      ? ""
+                                      : channelName
+                                  )
+                                }
+                              />
+                            </div>
                           ))}
                         </div>
                       </>
