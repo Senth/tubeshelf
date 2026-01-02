@@ -15,7 +15,7 @@
 > [!WARNING]
 > TubeShelf is in early development and subject to breaking changes. Expect bugs and missing features. Contributions and feedback are welcome!
 
-**TubeShelf** is a self-hosted YouTube subscription experience without a Google account. Browse your subscriptions in a clean, chronological feed—no algorithm, no tracking, just the videos you want in the order they were uploaded.
+**TubeShelf** is a self-hosted YouTube subscription experience without a Google account. Browse your subscriptions in a clean, chronological feed - no algorithm, no tracking, just the videos you want in the order they were uploaded.
 
 ## Features
 
