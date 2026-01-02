@@ -21,7 +21,7 @@ interface WelcomeWizardProps {
 export interface WelcomeOptions {
   enableVideos: boolean;
   userAcceptedWelcome: boolean;
-  fetchMethod: "newpipe" | "rss";
+  fetchMethod: "standard" | "rss";
 }
 
 export function WelcomeWizard({
@@ -39,7 +39,7 @@ export function WelcomeWizard({
   const [options, setOptions] = useState<WelcomeOptions>({
     enableVideos: true,
     userAcceptedWelcome: true,
-    fetchMethod: "newpipe",
+    fetchMethod: "standard",
   });
   const [wantToImport, setWantToImport] = useState(false);
 
@@ -246,9 +246,9 @@ export function WelcomeWizard({
               <input
                 type="radio"
                 name="fetchMethod"
-                checked={options.fetchMethod === "newpipe"}
+                checked={options.fetchMethod === "standard"}
                 onChange={() =>
-                  setOptions({ ...options, fetchMethod: "newpipe" })
+                  setOptions({ ...options, fetchMethod: "standard" })
                 }
                 className="w-5 h-5 mt-0.5 cursor-pointer accent-primary"
               />

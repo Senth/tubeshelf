@@ -1,7 +1,7 @@
 /**
- * NewPipe-inspired YouTube data fetcher
+ * Standard YouTube data fetcher
  *
- * This module implements a YouTube data fetcher using similar techniques to NewPipe:
+ * This module implements a YouTube data fetcher using web scraping techniques:
  * - Direct HTML scraping from YouTube pages
  * - No API keys required
  * - Extracts channel videos, metadata, and durations
@@ -10,7 +10,7 @@
  * and includes duration data natively.
  */
 
-export interface NewPipeVideo {
+export interface StandardVideo {
   id: string;
   title: string;
   channelId: string;
@@ -23,7 +23,7 @@ export interface NewPipeVideo {
   isMemberOnly?: boolean;
 }
 
-export interface NewPipeChannelMeta {
+export interface StandardChannelMeta {
   channelId: string;
   title: string;
   thumbnail?: string;
@@ -48,7 +48,7 @@ function extractYouTubeInitialData(html: string): any {
       try {
         return JSON.parse(match[1]);
       } catch (e) {
-        console.warn("[NewPipe] Failed to parse ytInitialData:", e);
+        console.warn("[StandardFetcher] Failed to parse ytInitialData:", e);
       }
     }
   }
@@ -61,7 +61,7 @@ function extractYouTubeInitialData(html: string): any {
 /**
  * Parse video renderer data from YouTube's internal format
  */
-function parseVideoRenderer(renderer: any): NewPipeVideo | null {
+function parseVideoRenderer(renderer: any): StandardVideo | null {
   try {
     const videoId = renderer.videoId;
     if (!videoId) return null;
@@ -250,20 +250,20 @@ function parseVideoRenderer(renderer: any): NewPipeVideo | null {
       isMemberOnly,
     };
   } catch (error) {
-    console.warn("[NewPipe] Failed to parse video renderer:", error);
+    console.warn("[StandardFetcher] Failed to parse video renderer:", error);
     return null;
   }
 }
 
 /**
- * Fetch channel videos using NewPipe-style scraping
+ * Fetch channel videos using standard web scraping
  */
 export async function fetchChannelVideos(
   channelId: string,
   options: {
     limit?: number;
   } = {}
-): Promise<{ videos: NewPipeVideo[]; meta: NewPipeChannelMeta }> {
+): Promise<{ videos: StandardVideo[]; meta: StandardChannelMeta }> {
   const { limit = 30 } = options;
 
   const url = `https://www.youtube.com/channel/${channelId}/videos`;
@@ -282,7 +282,7 @@ export async function fetchChannelVideos(
     // Use logger so default LOG_LEVEL (error) suppresses this in production
     // and you can enable it with LOG_LEVEL=debug
     const { debug } = await import("@/lib/logger");
-    debug(`[NewPipe] Fetching videos for channel ${channelId}`);
+    debug(`[StandardFetcher] Fetching videos for channel ${channelId}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -298,7 +298,7 @@ export async function fetchChannelVideos(
       // Explicitly log 404s so the container logs contain channel diagnostics
       if (response.status === 404) {
         console.error(
-          `[NewPipe] Channel page returned 404 for ${channelId} -> ${url}`
+          `[StandardFetcher] Channel page returned 404 for ${channelId} -> ${url}`
         );
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -369,13 +369,15 @@ export async function fetchChannelVideos(
     // Parse videos
     const videos = videoRenderers
       .map(parseVideoRenderer)
-      .filter((v): v is NewPipeVideo => v !== null)
+      .filter((v): v is StandardVideo => v !== null)
       .slice(0, limit);
 
     const { debug: dbg } = await import("@/lib/logger");
-    dbg(`[NewPipe] Found ${videos.length} videos for channel ${channelId}`);
+    dbg(
+      `[StandardFetcher] Found ${videos.length} videos for channel ${channelId}`
+    );
 
-    const meta: NewPipeChannelMeta = {
+    const meta: StandardChannelMeta = {
       channelId,
       title: channelTitle,
       avatar: channelAvatar?.startsWith("//")
@@ -390,7 +392,10 @@ export async function fetchChannelVideos(
     return { videos, meta };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[NewPipe] Failed to fetch channel videos:`, errorMsg);
+    console.error(
+      `[StandardFetcher] Failed to fetch channel videos:`,
+      errorMsg
+    );
 
     // Return empty result instead of throwing
     return {
@@ -413,9 +418,9 @@ export async function fetchChannelFeed(channelId: string) {
 }
 
 /**
- * Convert NewPipe video format to RSS-compatible format
+ * Convert standard video format to RSS-compatible format
  */
-export function newPipeToRSSFormat(video: NewPipeVideo): any {
+export function standardToRSSFormat(video: StandardVideo): any {
   return {
     id: video.id,
     videoId: video.id,

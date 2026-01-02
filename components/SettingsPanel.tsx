@@ -236,7 +236,7 @@ export function SettingsPanel({
                   </button>
                 </div>
                 <div className="flex gap-2">
-                  {(["newpipe", "rss"] as const).map((method) => (
+                  {(["standard", "rss"] as const).map((method) => (
                     <button
                       key={method}
                       onClick={() =>
@@ -248,7 +248,7 @@ export function SettingsPanel({
                           : "bg-secondary hover:bg-secondary/80"
                       }`}
                     >
-                      {method === "newpipe" ? "Default" : "Fast Mode"}
+                      {method === "standard" ? "Default" : "Fast Mode"}
                     </button>
                   ))}
                 </div>

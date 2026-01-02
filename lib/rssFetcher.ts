@@ -2,7 +2,7 @@
  * RSS Feed Fetcher for YouTube channels
  *
  * Fast alternative using YouTube's RSS feeds via playlist_id.
- * Limited to recent videos (typically ~15-20) but faster than NewPipe.
+ * Limited to recent videos (typically ~15-20) but faster than standard method.
  * Does NOT provide duration data - RSS feeds don't include this.
  */
 
