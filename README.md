@@ -22,14 +22,9 @@
 - **Chronological feed** - Videos sorted by upload time, newest first
 - **Subscribe easily** - Add channels via URL, ID, or @handle
 - **Import/Export** - OPML support for migrating subscriptions
-- **Mark as watched** - Track what you've seen with persistent state
+- **Mark as watched** - Track what you've seen
 - **Hide watched videos** - Filter option to show only unwatched content
 - **Watch later** - Save videos for later viewing
-
-## Limitations
-
-- **No video duration via RSS** - RSS feeds don't include duration metadata. Fetching durations requires finding an Invidious instance with open API access, but fetching can be slow.
-- **Limited to RSS feed capabilities** - ~15 recent videos per channel
 
 ## Quick Start
 
@@ -67,12 +62,7 @@ Access the web UI at **http://localhost:3000**
 
 Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal—a distraction-free subscription feed without a Google account.
 
-It uses YouTube RSS feeds to collect videos from your subscriptions and displays them chronologically. Click any video to open it on YouTube.
-
-## Similar Projects
-
-- **[Enriched RSS](https://gitlab.com/sila_point/enriched-rss)** - A project with similar goals of enhancing feed experiences. Inspiration on solving the challenge of duration metadata.
-
+It fetches videos from your subscriptions and displays them chronologically. Click any video to open it on YouTube.
 
 ## AI Assistance Disclaimer
 This project was developed with assistance from AI/LLMs (including GitHub Copilot, ChatGPT, and related tools), supervised by humans who occasionally knew what they were doing.
