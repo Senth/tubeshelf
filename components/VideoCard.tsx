@@ -73,10 +73,21 @@ export function VideoCard({
   const menuRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const handleWatch = () => {
-    if (videoUrl) {
-      window.open(videoUrl, "_blank");
+  const handleWatch = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Prevent the default link behavior
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Get the URL from the link's href attribute
+    const url = e.currentTarget.href;
+
+    // Open in new tab - only once, with full control
+    if (url) {
+      const newTab = window.open(url, "_blank", "noopener,noreferrer");
+      if (newTab) newTab.opener = null;
     }
+
+    // Call callback for tracking
     onWatch?.();
   };
 
@@ -166,12 +177,7 @@ export function VideoCard({
         target="_blank"
         rel="noopener noreferrer"
         className="relative overflow-hidden bg-secondary aspect-video cursor-pointer block rounded-t-xl"
-        onClick={(e) => {
-          // Let middle-click and ctrl/cmd+click pass through naturally
-          if (e.button !== 0) return;
-          e.preventDefault();
-          handleWatch();
-        }}
+        onClick={handleWatch}
       >
         {/* Skeleton placeholder while image loads - only render if needed */}
         {showSkeleton && (

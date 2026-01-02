@@ -538,8 +538,7 @@ export default function Home() {
     const newWatched = new Set(watchedVideos);
     newWatched.add(videoId);
     setWatchedVideos(newWatched);
-    // Open the video in a new tab
-    window.open(`https://www.youtube.com/watch?v=${videoId}`, "_blank");
+    // VideoCard component handles opening the video
   };
 
   const handleToggleWatched = (videoId: string) => {
