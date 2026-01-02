@@ -131,15 +131,23 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
             break;
           case "day":
             now.setDate(now.getDate() - value);
+            // Normalize to start of day for consistent sorting across refreshes
+            now.setHours(0, 0, 0, 0);
             break;
           case "week":
             now.setDate(now.getDate() - value * 7);
+            // Normalize to start of day
+            now.setHours(0, 0, 0, 0);
             break;
           case "month":
             now.setMonth(now.getMonth() - value);
+            // Normalize to start of day
+            now.setHours(0, 0, 0, 0);
             break;
           case "year":
             now.setFullYear(now.getFullYear() - value);
+            // Normalize to start of day
+            now.setHours(0, 0, 0, 0);
             break;
         }
         publishedAt = now.toISOString();
