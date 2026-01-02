@@ -363,43 +363,36 @@ export default function Home() {
   // as `true` when member videos are shown, so we invert it when storing.
   const toggleHideMemberOnlyPersist = async (switchChecked: boolean) => {
     const newHideMemberOnly = !switchChecked;
+    const previousValue = hideMemberOnly;
+
+    // Optimistic update
     setHideMemberOnly(newHideMemberOnly);
 
+    // Background persist
     try {
-      await fetch("/api/user-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          watchedVideos: Array.from(watchedVideos),
-          hideWatched,
-          hideMemberOnly: newHideMemberOnly,
-          filterListId,
-          watchLater: watchLater.map((item) => ({
-            ...item,
-            addedAt: item.addedAt.toISOString(),
-          })),
-        }),
-      });
+      await persistUserState({ hideMemberOnly: newHideMemberOnly });
     } catch (e) {
-      console.error("Failed to persist hideMemberOnly setting:", e);
+      // Revert on error
+      setHideMemberOnly(previousValue);
+      showToast("Failed to save setting", "error");
     }
   };
 
   const handleChangeFilterList = async (newId: string) => {
+    const previousValue = filterListId;
+
+    // Optimistic update
     setFilterListId(newId);
+    localStorage.setItem("filterListId", JSON.stringify(newId));
+
+    // Background persist
     try {
-      await fetch("/api/user-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          watchedVideos: Array.from(watchedVideos),
-          hideWatched,
-          filterListId: newId,
-        }),
-      });
-      localStorage.setItem("filterListId", JSON.stringify(newId));
+      await persistUserState({ filterListId: newId });
     } catch (e) {
-      console.error("Failed to persist filter list:", e);
+      // Revert on error
+      setFilterListId(previousValue);
+      localStorage.setItem("filterListId", JSON.stringify(previousValue));
+      showToast("Failed to save filter list", "error");
     }
   };
 
@@ -562,6 +555,37 @@ export default function Home() {
     subscriptionLists,
   ]);
 
+  // Helper function to persist user state in background
+  const persistUserState = async (
+    updates: Partial<{
+      watchedVideos: string[];
+      hideWatched: boolean;
+      hideMemberOnly: boolean;
+      filterListId: string;
+      watchLater: WatchLaterItem[];
+    }>
+  ) => {
+    const currentState = {
+      watchedVideos: Array.from(watchedVideos),
+      hideWatched,
+      hideMemberOnly,
+      filterListId,
+      watchLater,
+    };
+
+    const newState = { ...currentState, ...updates };
+
+    const res = await fetch("/api/user-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newState),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to save user state");
+    }
+  };
+
   const handleAddSubscription = async (url: string) => {
     try {
       await addSubscription(url, currentListId);
@@ -711,33 +735,58 @@ export default function Home() {
   };
 
   const handleWatchVideo = (videoId: string) => {
+    const previousWatched = new Set(watchedVideos);
     const newWatched = new Set(watchedVideos);
     newWatched.add(videoId);
+
+    // Optimistic update
     setWatchedVideos(newWatched);
-    // VideoCard component handles opening the video
+
+    // Persist in background
+    persistUserState({ watchedVideos: Array.from(newWatched) }).catch(() => {
+      // Revert on error
+      setWatchedVideos(previousWatched);
+      showToast("Failed to save watch status", "error");
+    });
   };
 
   const handleToggleWatched = (videoId: string) => {
     const wasWatched = watchedVideos.has(videoId);
+    const previousWatched = new Set(watchedVideos);
     const newWatched = new Set(watchedVideos);
 
     if (wasWatched) {
       newWatched.delete(videoId);
-      setWatchedVideos(newWatched);
+    } else {
+      newWatched.add(videoId);
+    }
+
+    // Optimistic update
+    setWatchedVideos(newWatched);
+
+    // Persist in background
+    persistUserState({ watchedVideos: Array.from(newWatched) }).catch(() => {
+      // Revert on error
+      setWatchedVideos(previousWatched);
+      showToast("Failed to save watch status", "error");
+    });
+
+    // Show toast with undo
+    if (wasWatched) {
       showToast("Marked as unwatched", "success", () => {
-        // Undo: mark as watched again
+        // Undo
         const undoWatched = new Set(watchedVideos);
         undoWatched.add(videoId);
         setWatchedVideos(undoWatched);
+        persistUserState({ watchedVideos: Array.from(undoWatched) });
       });
     } else {
-      newWatched.add(videoId);
-      setWatchedVideos(newWatched);
       showToast("Marked as watched", "success", () => {
-        // Undo: mark as unwatched
+        // Undo
         const undoWatched = new Set(watchedVideos);
         undoWatched.delete(videoId);
         setWatchedVideos(undoWatched);
+        persistUserState({ watchedVideos: Array.from(undoWatched) });
       });
     }
   };
@@ -760,24 +809,45 @@ export default function Home() {
     };
 
     const previousWatchLater = watchLater;
-    setWatchLater([item, ...watchLater]);
+    const newWatchLater = [item, ...watchLater];
+
+    // Optimistic update
+    setWatchLater(newWatchLater);
+
+    // Persist in background
+    persistUserState({ watchLater: newWatchLater }).catch(() => {
+      // Revert on error
+      setWatchLater(previousWatchLater);
+      showToast("Failed to add to Watch Later", "error");
+    });
 
     showToast("Added to Watch Later", "success", () => {
-      // Undo: remove from watch later
+      // Undo
       setWatchLater(previousWatchLater);
+      persistUserState({ watchLater: previousWatchLater });
     });
   };
 
   const handleRemoveFromWatchLater = (id: string) => {
     const removedItem = watchLater.find((w) => w.id === id);
     const previousWatchLater = watchLater;
+    const newWatchLater = watchLater.filter((w) => w.id !== id);
 
-    setWatchLater(watchLater.filter((w) => w.id !== id));
+    // Optimistic update
+    setWatchLater(newWatchLater);
+
+    // Persist in background
+    persistUserState({ watchLater: newWatchLater }).catch(() => {
+      // Revert on error
+      setWatchLater(previousWatchLater);
+      showToast("Failed to remove from Watch Later", "error");
+    });
 
     if (removedItem) {
       showToast("Removed from Watch Later", "success", () => {
-        // Undo: add back to watch later
+        // Undo
         setWatchLater(previousWatchLater);
+        persistUserState({ watchLater: previousWatchLater });
       });
     }
   };
@@ -1209,7 +1279,22 @@ export default function Home() {
                               </div>
                               <Switch
                                 checked={hideWatched}
-                                onCheckedChange={setHideWatched}
+                                onCheckedChange={(checked) => {
+                                  const previousValue = hideWatched;
+                                  // Optimistic update
+                                  setHideWatched(checked);
+                                  // Background persist
+                                  persistUserState({
+                                    hideWatched: checked,
+                                  }).catch(() => {
+                                    // Revert on error
+                                    setHideWatched(previousValue);
+                                    showToast(
+                                      "Failed to save setting",
+                                      "error"
+                                    );
+                                  });
+                                }}
                               />
                             </label>
 
