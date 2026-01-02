@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useContext, useRef, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeContext } from "@/components/ThemeProvider";
 import {
   Play,
@@ -53,6 +54,8 @@ import {
 } from "@/lib/videoUtils";
 
 export default function Home() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme } = useContext(ThemeContext);
   const [mounted, setMounted] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("home");
@@ -359,18 +362,16 @@ export default function Home() {
     }
   };
 
-  // Toggle and persist hideMemberOnly. The Switch component reports its checked state
-  // as `true` when member videos are shown, so we invert it when storing.
-  const toggleHideMemberOnlyPersist = async (switchChecked: boolean) => {
-    const newHideMemberOnly = !switchChecked;
+  // Toggle and persist hideMemberOnly
+  const toggleHideMemberOnlyPersist = async (checked: boolean) => {
     const previousValue = hideMemberOnly;
 
     // Optimistic update
-    setHideMemberOnly(newHideMemberOnly);
+    setHideMemberOnly(checked);
 
     // Background persist
     try {
-      await persistUserState({ hideMemberOnly: newHideMemberOnly });
+      await persistUserState({ hideMemberOnly: checked });
     } catch (e) {
       // Revert on error
       setHideMemberOnly(previousValue);
@@ -395,6 +396,69 @@ export default function Home() {
       showToast("Failed to save filter list", "error");
     }
   };
+
+  // Initialize state from URL parameters
+  useEffect(() => {
+    const page = searchParams.get("page");
+    if (page === "watch-later") {
+      setCurrentPage("watch-later");
+    }
+
+    const search = searchParams.get("search");
+    if (search) {
+      setSearchQuery(search);
+    }
+
+    const list = searchParams.get("list");
+    if (list) {
+      setFilterListId(list);
+    }
+
+    const hideWatchedParam = searchParams.get("hideWatched");
+    if (hideWatchedParam === "true") {
+      setHideWatched(true);
+    }
+
+    const hideMemberOnlyParam = searchParams.get("hideMemberOnly");
+    if (hideMemberOnlyParam === "true") {
+      setHideMemberOnly(true);
+    }
+  }, [searchParams]);
+
+  // Update URL when state changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+
+    if (currentPage === "watch-later") {
+      params.set("page", "watch-later");
+    }
+
+    if (searchQuery) {
+      params.set("search", searchQuery);
+    }
+
+    if (filterListId && filterListId !== "all") {
+      params.set("list", filterListId);
+    }
+
+    if (hideWatched) {
+      params.set("hideWatched", "true");
+    }
+
+    if (hideMemberOnly) {
+      params.set("hideMemberOnly", "true");
+    }
+
+    const newUrl = params.toString() ? `?${params.toString()}` : "/";
+    router.replace(newUrl, { scroll: false });
+  }, [
+    currentPage,
+    searchQuery,
+    filterListId,
+    hideWatched,
+    hideMemberOnly,
+    router,
+  ]);
 
   // Initialize data on mount using singleton feed manager
   useEffect(() => {
@@ -1300,10 +1364,10 @@ export default function Home() {
 
                             <label className="flex items-center justify-between gap-3 px-2 py-2 hover:bg-muted/5 rounded">
                               <div className="text-sm text-foreground">
-                                Show member videos
+                                Hide member videos
                               </div>
                               <Switch
-                                checked={!hideMemberOnly}
+                                checked={hideMemberOnly}
                                 onCheckedChange={toggleHideMemberOnlyPersist}
                               />
                             </label>
