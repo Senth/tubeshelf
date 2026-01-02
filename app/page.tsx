@@ -22,6 +22,8 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { WatchLater } from "@/components/WatchLater";
 import { LoadingProgress } from "@/components/LoadingProgress";
 import { WelcomeWizard, type WelcomeOptions } from "@/components/WelcomeWizard";
+import { ToastContainer } from "@/components/ToastContainer";
+import type { ToastProps } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -92,6 +94,20 @@ export default function Home() {
   const videoRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [toasts, setToasts] = useState<Omit<ToastProps, "onClose">[]>([]);
+
+  const showToast = (
+    message: string,
+    type: "success" | "error" | "info" = "success",
+    onUndo?: () => void
+  ) => {
+    const id = Math.random().toString(36).substring(7);
+    setToasts((prev) => [...prev, { id, message, type, onUndo }]);
+  };
+
+  const closeToast = (id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -702,16 +718,38 @@ export default function Home() {
   };
 
   const handleToggleWatched = (videoId: string) => {
+    const wasWatched = watchedVideos.has(videoId);
     const newWatched = new Set(watchedVideos);
-    if (newWatched.has(videoId)) {
+
+    if (wasWatched) {
       newWatched.delete(videoId);
+      setWatchedVideos(newWatched);
+      showToast("Marked as unwatched", "success", () => {
+        // Undo: mark as watched again
+        const undoWatched = new Set(watchedVideos);
+        undoWatched.add(videoId);
+        setWatchedVideos(undoWatched);
+      });
     } else {
       newWatched.add(videoId);
+      setWatchedVideos(newWatched);
+      showToast("Marked as watched", "success", () => {
+        // Undo: mark as unwatched
+        const undoWatched = new Set(watchedVideos);
+        undoWatched.delete(videoId);
+        setWatchedVideos(undoWatched);
+      });
     }
-    setWatchedVideos(newWatched);
   };
 
   const handleAddToWatchLater = (video: Video) => {
+    const alreadyExists = watchLater.some((w) => w.videoId === video.id);
+
+    if (alreadyExists) {
+      showToast("Already in Watch Later", "info");
+      return;
+    }
+
     const item: WatchLaterItem = {
       id: `wl-${video.id}`,
       videoId: video.id,
@@ -720,11 +758,28 @@ export default function Home() {
       thumbnail: video.thumbnail,
       addedAt: new Date(),
     };
-    setWatchLater([item, ...watchLater.filter((w) => w.videoId !== video.id)]);
+
+    const previousWatchLater = watchLater;
+    setWatchLater([item, ...watchLater]);
+
+    showToast("Added to Watch Later", "success", () => {
+      // Undo: remove from watch later
+      setWatchLater(previousWatchLater);
+    });
   };
 
   const handleRemoveFromWatchLater = (id: string) => {
+    const removedItem = watchLater.find((w) => w.id === id);
+    const previousWatchLater = watchLater;
+
     setWatchLater(watchLater.filter((w) => w.id !== id));
+
+    if (removedItem) {
+      showToast("Removed from Watch Later", "success", () => {
+        // Undo: add back to watch later
+        setWatchLater(previousWatchLater);
+      });
+    }
   };
 
   const handleWelcomeWizardComplete = async (options: WelcomeOptions) => {
@@ -1401,6 +1456,9 @@ export default function Home() {
           onImportFile={handleWelcomeWizardImportFile}
         />
       )}
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onClose={closeToast} />
     </div>
   );
 }
