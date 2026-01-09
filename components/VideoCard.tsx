@@ -48,6 +48,8 @@ interface VideoCardProps {
   onWatchLater?: () => void;
   onMarkWatched?: () => void;
   onChannelClick?: (channelName: string) => void;
+  onPlayInPlayer?: (videoUrl: string) => void;
+  useBuiltInPlayer?: boolean;
 }
 
 export function VideoCard({
@@ -67,6 +69,8 @@ export function VideoCard({
   onWatchLater,
   onMarkWatched,
   onChannelClick,
+  onPlayInPlayer,
+  useBuiltInPlayer = false,
 }: VideoCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -80,13 +84,18 @@ export function VideoCard({
     e.preventDefault();
     e.stopPropagation();
 
-    // Get the URL from the link's href attribute
-    const url = e.currentTarget.href;
+    if (useBuiltInPlayer && videoUrl) {
+      // Use built-in player
+      onPlayInPlayer?.(videoUrl);
+    } else {
+      // Get the URL from the link's href attribute
+      const url = e.currentTarget.href;
 
-    // Open in new tab - only once, with full control
-    if (url) {
-      const newTab = window.open(url, "_blank", "noopener,noreferrer");
-      if (newTab) newTab.opener = null;
+      // Open in new tab - only once, with full control
+      if (url) {
+        const newTab = window.open(url, "_blank", "noopener,noreferrer");
+        if (newTab) newTab.opener = null;
+      }
     }
 
     // Call callback for tracking

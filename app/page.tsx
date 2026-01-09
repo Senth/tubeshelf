@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useContext, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useContext,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeContext } from "@/components/ThemeProvider";
 import {
@@ -13,11 +20,14 @@ import {
   RefreshCw,
   Zap,
   RadioTower,
+  Clock,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
+import { VideoPlayer } from "@/components/VideoPlayer";
+import { PlaybackHistory } from "@/components/PlaybackHistory";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WatchLater } from "@/components/WatchLater";
@@ -86,17 +96,35 @@ export default function Home() {
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Video player state
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [playerVideo, setPlayerVideo] = useState<{
+    videoUrl: string;
+    videoId: string;
+    title: string;
+    channel: string;
+    channelId?: string;
+    thumbnail?: string;
+  } | null>(null);
+  const [showPlaybackHistory, setShowPlaybackHistory] = useState(false);
+  const [initialProgress, setInitialProgress] = useState(0);
+  const [playerQuality, setPlayerQuality] = useState<
+    "360p" | "480p" | "720p" | "1080p"
+  >("720p");
+
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  const currentSearchParamsRef = useRef("");
   const [highlightedVideoIndex, setHighlightedVideoIndex] = useState<
     number | null
   >(null);
   const videoRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const closingPlayerRef = useRef(false);
   const [toasts, setToasts] = useState<Omit<ToastProps, "onClose">[]>([]);
 
   const showToast = (
@@ -115,6 +143,60 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Track current search params for use in handlers
+  useEffect(() => {
+    currentSearchParamsRef.current = searchParams.toString();
+  }, [searchParams]);
+
+  // Handle URL parameters for player (only on mount and hash changes)
+  useEffect(() => {
+    if (!mounted) return;
+
+    // Check URL hash for player state
+    const handleHashChange = () => {
+      // Skip if we're in the middle of opening/closing
+      if (closingPlayerRef.current) return;
+
+      const hash = window.location.hash;
+      const match = hash.match(/^#player=([^&]+)/);
+
+      if (match && videos.length > 0) {
+        const videoId = match[1];
+        const video = videos.find((v) => v.id === videoId);
+
+        if (video && !showPlayer) {
+          setPlayerVideo({
+            videoUrl: video.url,
+            videoId: video.id,
+            title: video.title,
+            channel: video.channel,
+            channelId: video.channelId,
+            thumbnail: video.thumbnail,
+          });
+          setShowPlayer(true);
+        }
+      } else if (!match && showPlayer) {
+        // Hash cleared, close player
+        setShowPlayer(false);
+        setPlayerVideo(null);
+      }
+    };
+
+    // Check on mount
+    handleHashChange();
+
+    // Listen for hash changes (browser back/forward)
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [mounted, videos.length]);
+
+  // Mark as watched when player opens
+  useEffect(() => {
+    if (showPlayer && playerVideo) {
+      handleWatchVideo(playerVideo.videoId);
+    }
+  }, [showPlayer, playerVideo?.videoId]);
 
   // Close the ad-hoc "more" menu when clicking outside
   useEffect(() => {
@@ -780,6 +862,80 @@ export default function Home() {
     });
   };
 
+  const handlePlayInPlayer = useCallback(
+    (
+      videoUrl: string,
+      videoId: string,
+      title: string,
+      channel: string,
+      channelId?: string,
+      thumbnail?: string
+    ) => {
+      // Prevent hash change event from re-triggering
+      closingPlayerRef.current = true;
+
+      // Set player state first
+      setPlayerVideo({
+        videoUrl,
+        videoId,
+        title,
+        channel,
+        channelId,
+        thumbnail,
+      });
+      setShowPlayer(true);
+
+      // Update URL hash with video ID for shareable links
+      window.location.hash = `player=${videoId}`;
+
+      // Mark as watched when player is opened
+      handleWatchVideo(videoId);
+
+      // Allow hash changes again after a brief moment
+      setTimeout(() => {
+        closingPlayerRef.current = false;
+      }, 50);
+    },
+    []
+  );
+
+  const handleClosePlayer = useCallback(() => {
+    // Mark that we're closing so the hash effect doesn't reopen
+    closingPlayerRef.current = true;
+    setShowPlayer(false);
+    setPlayerVideo(null);
+    setInitialProgress(0);
+
+    // Clear the hash - this is instantly visible
+    window.location.hash = "";
+
+    // Reset closing flag after a moment
+    setTimeout(() => {
+      closingPlayerRef.current = false;
+    }, 100);
+  }, []);
+
+  const handlePlayerProgress = (progress: number, duration: number) => {
+    if (!playerVideo) return;
+
+    // Save progress to playback history
+    fetch("/api/playback-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        videoId: playerVideo.videoId,
+        videoTitle: playerVideo.title,
+        channelId: playerVideo.channelId || "",
+        channelName: playerVideo.channel,
+        thumbnail: playerVideo.thumbnail || "",
+        timestamp: new Date().toISOString(),
+        duration,
+        progress,
+        completed: progress / duration >= 0.9,
+      }),
+    }).catch((err) => console.error("Failed to save playback progress:", err));
+  };
+
   const handleToggleWatched = (videoId: string) => {
     const wasWatched = watchedVideos.has(videoId);
     const previousWatched = new Set(watchedVideos);
@@ -1133,6 +1289,16 @@ export default function Home() {
                 )}
               </Button>
               <Button
+                onClick={() => setShowPlaybackHistory(true)}
+                variant="ghost"
+                size="icon"
+                title="Playback history"
+              >
+                <ClientOnly>
+                  <Clock className="w-5 h-5" />
+                </ClientOnly>
+              </Button>
+              <Button
                 onClick={() => setShowSettings(true)}
                 variant="ghost"
                 size="icon"
@@ -1386,58 +1552,61 @@ export default function Home() {
                         </p>
                       </div>
                     ) : (
-                      <>
-                        {console.log(
-                          `Rendering ${filteredVideos.length} video cards`
-                        )}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                          {filteredVideos.map((video, index) => (
-                            <div
-                              key={video.id}
-                              ref={(el) => {
-                                if (el) {
-                                  videoRefs.current.set(index, el);
-                                } else {
-                                  videoRefs.current.delete(index);
-                                }
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {filteredVideos.map((video, index) => (
+                          <div
+                            key={video.id}
+                            ref={(el) => {
+                              if (el) {
+                                videoRefs.current.set(index, el);
+                              } else {
+                                videoRefs.current.delete(index);
+                              }
+                            }}
+                            className={`transition-all duration-200 rounded-xl ${
+                              highlightedVideoIndex === index
+                                ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                                : ""
+                            }`}
+                          >
+                            <VideoCard
+                              id={video.id}
+                              title={video.title}
+                              channel={video.channel}
+                              thumbnail={video.thumbnail}
+                              duration={video.duration}
+                              uploadedAt={video.uploadedAt}
+                              views={video.views}
+                              watched={watchedVideos.has(video.id)}
+                              videoUrl={video.url}
+                              showDurationPlaceholder={true}
+                              isMemberOnly={video.isMemberOnly}
+                              onWatch={() => handleWatchVideo(video.id)}
+                              onWatchLater={() => handleAddToWatchLater(video)}
+                              onMarkWatched={() =>
+                                handleToggleWatched(video.id)
+                              }
+                              onChannelClick={(channelName) =>
+                                setSearchQuery(
+                                  searchQuery === channelName ? "" : channelName
+                                )
+                              }
+                              useBuiltInPlayer={settings?.enableVideos || false}
+                              onPlayInPlayer={(videoUrl) => {
+                                setInitialProgress(0); // Reset progress for new videos
+                                handlePlayInPlayer(
+                                  videoUrl,
+                                  video.id,
+                                  video.title,
+                                  video.channel,
+                                  video.channelId,
+                                  video.thumbnail
+                                );
                               }}
-                              className={`transition-all duration-200 rounded-xl ${
-                                highlightedVideoIndex === index
-                                  ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                                  : ""
-                              }`}
-                            >
-                              <VideoCard
-                                id={video.id}
-                                title={video.title}
-                                channel={video.channel}
-                                thumbnail={video.thumbnail}
-                                duration={video.duration}
-                                uploadedAt={video.uploadedAt}
-                                views={video.views}
-                                watched={watchedVideos.has(video.id)}
-                                videoUrl={video.url}
-                                showDurationPlaceholder={true}
-                                isMemberOnly={video.isMemberOnly}
-                                onWatch={() => handleWatchVideo(video.id)}
-                                onWatchLater={() =>
-                                  handleAddToWatchLater(video)
-                                }
-                                onMarkWatched={() =>
-                                  handleToggleWatched(video.id)
-                                }
-                                onChannelClick={(channelName) =>
-                                  setSearchQuery(
-                                    searchQuery === channelName
-                                      ? ""
-                                      : channelName
-                                  )
-                                }
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </>
+                            />
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </>
                 )}
@@ -1551,6 +1720,57 @@ export default function Home() {
           currentListId={currentListId}
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Video Player Modal */}
+      {showPlayer && playerVideo && (
+        <VideoPlayer
+          videoId={playerVideo.videoId}
+          videoTitle={playerVideo.title}
+          channelName={playerVideo.channel}
+          channelId={playerVideo.channelId}
+          channelThumbnail={
+            playerVideo.channelId
+              ? subscriptionLists
+                  .flatMap((list) => list.subscriptions)
+                  .find((sub) => sub.channelId === playerVideo.channelId)
+                  ?.thumbnail
+              : undefined
+          }
+          videoUrl={playerVideo.videoUrl}
+          onClose={handleClosePlayer}
+          onMarkWatched={() => handleWatchVideo(playerVideo.videoId)}
+          onChannelClick={(channelName) =>
+            setSearchQuery(searchQuery === channelName ? "" : channelName)
+          }
+          quality={playerQuality}
+          onQualityChange={(q) => setPlayerQuality(q as typeof playerQuality)}
+          onProgress={handlePlayerProgress}
+          initialProgress={initialProgress}
+        />
+      )}
+
+      {/* Playback History Modal */}
+      {showPlaybackHistory && (
+        <PlaybackHistory
+          onClose={() => setShowPlaybackHistory(false)}
+          onPlayVideo={(videoId, progress) => {
+            // Find the video and play it
+            const video = videos.find((v) => v.id === videoId);
+            if (video) {
+              setInitialProgress(progress);
+              handlePlayInPlayer(
+                video.url,
+                video.id,
+                video.title,
+                video.channel,
+                video.channelId,
+                video.thumbnail
+              );
+              setShowPlaybackHistory(false);
+            }
+          }}
         />
       )}
 

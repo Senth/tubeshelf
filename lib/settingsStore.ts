@@ -7,6 +7,8 @@ export interface AppSettings {
   enableVideos: boolean;
   hasCompletedWelcome: boolean;
   fetchMethod: "standard" | "rss";
+  videoQuality: "360p" | "480p" | "720p" | "1080p";
+  autoPlayQuality: boolean;
 }
 
 export const defaultSettings: AppSettings = {
@@ -15,6 +17,8 @@ export const defaultSettings: AppSettings = {
   enableVideos: true,
   hasCompletedWelcome: false,
   fetchMethod: "standard",
+  videoQuality: "720p",
+  autoPlayQuality: false,
 };
 
 const dataDir = "data";

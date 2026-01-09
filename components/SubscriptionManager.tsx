@@ -521,17 +521,15 @@ export function SubscriptionManager({
                   {/* Move dropdown - only show if there are other lists */}
                   {lists.length > 1 && onMove && (
                     <div className="relative">
-                      <Button
+                      <button
                         onClick={() =>
                           setMovingSubId(movingSubId === sub.id ? null : sub.id)
                         }
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                        className="p-2 bg-primary/20 hover:bg-primary/30 rounded transition-colors cursor-pointer hover:scale-110"
                         title="Move to another list"
                       >
-                        <Shuffle className="w-4 h-4" />
-                      </Button>
+                        <Shuffle className="w-4 h-4 text-primary" />
+                      </button>
                       {movingSubId === sub.id && (
                         <div className="absolute right-0 bottom-full mb-1 w-48 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
                           <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border bg-secondary/30">
@@ -554,14 +552,13 @@ export function SubscriptionManager({
                     </div>
                   )}
 
-                  <Button
+                  <button
                     onClick={() => onRemove?.(sub.id)}
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                    className="p-2 bg-destructive/20 hover:bg-destructive/30 rounded transition-colors cursor-pointer hover:scale-110"
+                    title="Remove subscription"
                   >
-                    <X className="w-4 h-4" />
-                  </Button>
+                    <X className="w-4 h-4 text-destructive" />
+                  </button>
                 </div>
               ))}
           </div>

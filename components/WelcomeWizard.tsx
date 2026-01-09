@@ -88,7 +88,7 @@ export function WelcomeWizard({
         "A clean, chronological YouTube feed. No algorithm. No tracking.",
       content: (
         <div className="text-center space-y-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded">
             <img
               src={(() => {
                 if (theme === "dark") return "/icon-dark.svg";
@@ -295,7 +295,7 @@ export function WelcomeWizard({
       description: "All set up and ready to start",
       content: (
         <div className="text-center space-y-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-500/10 rounded-full">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-500/10 rounded">
             <Check className="w-8 h-8 text-green-600 dark:text-green-400" />
           </div>
           <div className="space-y-2">
