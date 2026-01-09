@@ -19,7 +19,6 @@ interface WelcomeWizardProps {
 }
 
 export interface WelcomeOptions {
-  enableVideos: boolean;
   userAcceptedWelcome: boolean;
   fetchMethod: "standard" | "rss";
 }
@@ -37,7 +36,6 @@ export function WelcomeWizard({
   const [importSuccess, setImportSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [options, setOptions] = useState<WelcomeOptions>({
-    enableVideos: true,
     userAcceptedWelcome: true,
     fetchMethod: "standard",
   });

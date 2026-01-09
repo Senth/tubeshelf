@@ -368,14 +368,14 @@ const VideoPlayerComponent = ({
         (document as any).msFullscreenElement
       );
       setIsFullscreen(isFS);
-      
+
       // Add/remove global style to hide cursor in fullscreen
       if (isFS) {
         // Add style to body and fullscreen element
-        document.body.style.cursor = 'none';
-        const styleId = 'fullscreen-cursor-hide';
+        document.body.style.cursor = "none";
+        const styleId = "fullscreen-cursor-hide";
         if (!document.getElementById(styleId)) {
-          const style = document.createElement('style');
+          const style = document.createElement("style");
           style.id = styleId;
           style.textContent = `
             :fullscreen, :-webkit-full-screen, :-moz-full-screen, :-ms-fullscreen {
@@ -389,28 +389,37 @@ const VideoPlayerComponent = ({
         }
       } else {
         // Remove cursor hiding
-        document.body.style.cursor = '';
-        const styleElement = document.getElementById('fullscreen-cursor-hide');
+        document.body.style.cursor = "";
+        const styleElement = document.getElementById("fullscreen-cursor-hide");
         if (styleElement) {
           styleElement.remove();
         }
       }
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
 
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
-      
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener(
+        "webkitfullscreenchange",
+        handleFullscreenChange
+      );
+      document.removeEventListener(
+        "mozfullscreenchange",
+        handleFullscreenChange
+      );
+      document.removeEventListener(
+        "MSFullscreenChange",
+        handleFullscreenChange
+      );
+
       // Cleanup
-      document.body.style.cursor = '';
-      const styleElement = document.getElementById('fullscreen-cursor-hide');
+      document.body.style.cursor = "";
+      const styleElement = document.getElementById("fullscreen-cursor-hide");
       if (styleElement) {
         styleElement.remove();
       }
@@ -421,7 +430,7 @@ const VideoPlayerComponent = ({
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col"
-      style={isFullscreen ? { cursor: 'none' } : undefined}
+      style={isFullscreen ? { cursor: "none" } : undefined}
     >
       {/* Header */}
       <div className="border-b border-white/10 bg-gradient-to-b from-black via-black to-transparent">

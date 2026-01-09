@@ -4,21 +4,17 @@ import { join } from "path";
 export interface AppSettings {
   defaultSortOrder: "newest" | "oldest";
   theme: "light" | "dark" | "system";
-  enableVideos: boolean;
+  videoPlayerMode: "built-in" | "new-tab";
   hasCompletedWelcome: boolean;
   fetchMethod: "standard" | "rss";
-  videoQuality: "360p" | "480p" | "720p" | "1080p";
-  autoPlayQuality: boolean;
 }
 
 export const defaultSettings: AppSettings = {
   defaultSortOrder: "newest",
   theme: "system",
-  enableVideos: true,
+  videoPlayerMode: "built-in",
   hasCompletedWelcome: false,
   fetchMethod: "standard",
-  videoQuality: "720p",
-  autoPlayQuality: false,
 };
 
 const dataDir = "data";
@@ -39,5 +35,26 @@ export async function writeSettings(
   await mkdir(dataDir, { recursive: true });
   const current = await readSettings();
   const updated = { ...current, ...settings };
-  await writeFile(settingsFile, JSON.stringify(updated, null, 2), "utf-8");
+
+  // Only keep properties that are in AppSettings interface
+  const validSettings: Partial<AppSettings> = {};
+  const keys: (keyof AppSettings)[] = [
+    "defaultSortOrder",
+    "theme",
+    "videoPlayerMode",
+    "hasCompletedWelcome",
+    "fetchMethod",
+  ];
+
+  for (const key of keys) {
+    if (key in updated) {
+      validSettings[key] = updated[key];
+    }
+  }
+
+  await writeFile(
+    settingsFile,
+    JSON.stringify(validSettings, null, 2),
+    "utf-8"
+  );
 }

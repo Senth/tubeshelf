@@ -130,7 +130,9 @@ export function PlaybackHistory({
                 );
                 const isCompleted = progressPercent >= 90; // Consider 90%+ as watched
                 // Fallback to YouTube thumbnail if no thumbnail stored
-                const thumbnailUrl = session.thumbnail || `https://i.ytimg.com/vi/${session.videoId}/hqdefault.jpg`;
+                const thumbnailUrl =
+                  session.thumbnail ||
+                  `https://i.ytimg.com/vi/${session.videoId}/hqdefault.jpg`;
 
                 return (
                   <div
@@ -172,7 +174,9 @@ export function PlaybackHistory({
                     {/* Actions */}
                     <div className="flex gap-1 flex-shrink-0 items-center">
                       <button
-                        onClick={() => onPlayVideo?.(session.videoId, session.progress)}
+                        onClick={() =>
+                          onPlayVideo?.(session.videoId, session.progress)
+                        }
                         className="p-2 bg-primary/20 hover:bg-primary/30 rounded transition-colors cursor-pointer hover:scale-110"
                         title="Resume playback"
                       >

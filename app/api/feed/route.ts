@@ -29,14 +29,10 @@ export async function GET(req: Request) {
     );
 
     // Get current settings to use as cache key - do this early
-    let currentSettings = {
-      enableVideos: true,
-    };
+    let currentSettings = {};
     try {
       const settingsData = await readSettings();
-      currentSettings = {
-        enableVideos: settingsData.enableVideos,
-      };
+      currentSettings = {};
     } catch {
       // Use defaults
     }
@@ -152,12 +148,11 @@ export async function GET(req: Request) {
           let hasVideos = false;
           let latestUploadTime: string | undefined;
 
-          // Fetch regular videos only if enabled
-          if (feedSettings.enableVideos) {
-            console.log(
-              `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
-            );
-            const result = await fetchChannelFeed(current);
+          // Fetch regular videos
+          console.log(
+            `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
+          );
+          const result = await fetchChannelFeed(current);
             meta = result.meta;
 
             // If the fetch returned no videos and no meta title, treat as unavailable
@@ -189,7 +184,7 @@ export async function GET(req: Request) {
               });
             });
           }
-          // Only regular videos are fetched for each channel
+          // Regular videos fetched
 
           // Track the latest upload time for this channel
           // Always update the timestamp with either the latest upload or current time

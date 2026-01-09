@@ -748,14 +748,7 @@ export default function Home() {
       const freshSettings = await getSettings();
       setSettings(freshSettings);
 
-      // If content filter settings changed, refresh feed data
-      const contentFilterChanged = updates.enableVideos !== undefined;
-
-      if (contentFilterChanged) {
-        // Close settings panel before refresh to show loading bar
-        setShowSettings(false);
-        await refreshData(true); // Force refresh to bypass cache
-      }
+      // No content filter changes anymore - videoPlayerMode doesn't affect feed
     } catch (err) {
       console.error("Failed to save settings:", err);
     }
@@ -1045,7 +1038,6 @@ export default function Home() {
     try {
       // Apply wizard settings (including hasCompletedWelcome flag and fetchMethod)
       const updates: Partial<typeof settings> = {
-        enableVideos: options.enableVideos,
         hasCompletedWelcome: true,
         fetchMethod: options.fetchMethod,
       };
@@ -1425,22 +1417,20 @@ export default function Home() {
                 {/* Tabs and Controls */}
                 <div className="flex items-center justify-between mb-6 border-b border-border/30">
                   <div className="flex gap-1">
-                    {settings?.enableVideos && (
-                      <button
-                        onClick={() => setFeedTab("videos")}
-                        className={`px-4 py-3 font-medium transition-all duration-200 relative ${
-                          feedTab === "videos"
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
-                          feedTab === "videos"
-                            ? "after:bg-primary"
-                            : "after:bg-transparent"
-                        } hover:after:bg-primary/50`}
-                      >
-                        Videos
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setFeedTab("videos")}
+                      className={`px-4 py-3 font-medium transition-all duration-200 relative ${
+                        feedTab === "videos"
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                        feedTab === "videos"
+                          ? "after:bg-primary"
+                          : "after:bg-transparent"
+                      } hover:after:bg-primary/50`}
+                    >
+                      Videos
+                    </button>
                     {/* Tabs simplified — only Videos available */}
                   </div>
                   <div className="flex items-center gap-3 pb-2">
@@ -1591,7 +1581,9 @@ export default function Home() {
                                   searchQuery === channelName ? "" : channelName
                                 )
                               }
-                              useBuiltInPlayer={settings?.enableVideos || false}
+                              useBuiltInPlayer={
+                                settings?.videoPlayerMode !== "new-tab"
+                              }
                               onPlayInPlayer={(videoUrl) => {
                                 setInitialProgress(0); // Reset progress for new videos
                                 handlePlayInPlayer(

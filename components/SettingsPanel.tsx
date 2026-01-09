@@ -313,6 +313,30 @@ export function SettingsPanel({
                 </div>
               )}
 
+              {/* Video Player Mode */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">
+                  Video Player
+                </label>
+                <div className="flex gap-2">
+                  {(["built-in", "new-tab"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() =>
+                        setLocal({ ...local, videoPlayerMode: mode })
+                      }
+                      className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+                        local.videoPlayerMode === mode
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary hover:bg-secondary/80"
+                      }`}
+                    >
+                      {mode === "built-in" ? "Built-in Player" : "New Tab"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Theme */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Theme</label>
