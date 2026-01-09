@@ -1,5 +1,5 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { getDb } from "./db";
+import { migrateFromJson } from "./migrate";
 
 export interface UserState {
   watchedVideos: string[];
@@ -16,144 +16,108 @@ export interface UserState {
   }>;
 }
 
-const dataDir = path.join(process.cwd(), "data");
-const watchedFile = path.join(dataDir, "watchedVideos.json");
-const configFile = path.join(dataDir, "userConfig.json");
-const watchLaterFile = path.join(dataDir, "watchLater.json");
-
-async function ensureDir() {
-  await fs.mkdir(dataDir, { recursive: true });
-}
-
-async function ensureWatchedFile() {
-  try {
-    await fs.access(watchedFile);
-  } catch {
-    await ensureDir();
-    await fs.writeFile(watchedFile, "[]", "utf8");
+// Run migration on first import
+let migrationPromise: Promise<void> | null = null;
+async function ensureMigration() {
+  if (!migrationPromise) {
+    migrationPromise = migrateFromJson().catch((err) => {
+      console.error("Migration failed:", err);
+    });
   }
-}
-
-async function ensureConfigFile() {
-  try {
-    await fs.access(configFile);
-  } catch {
-    await ensureDir();
-    const defaultConfig = {
-      hideWatched: false,
-      hideMemberOnly: false,
-      filterListId: "all",
-    };
-    await fs.writeFile(
-      configFile,
-      JSON.stringify(defaultConfig, null, 2),
-      "utf8"
-    );
-  }
-}
-
-async function ensureWatchLaterFile() {
-  try {
-    await fs.access(watchLaterFile);
-  } catch {
-    await ensureDir();
-    await fs.writeFile(watchLaterFile, "[]", "utf8");
-  }
+  await migrationPromise;
 }
 
 export async function readUserState(): Promise<UserState> {
-  await Promise.all([
-    ensureWatchedFile(),
-    ensureConfigFile(),
-    ensureWatchLaterFile(),
-  ]);
+  await ensureMigration();
+  const db = getDb();
 
-  const [watchedRaw, configRaw, watchLaterRaw] = await Promise.all([
-    fs.readFile(watchedFile, "utf8"),
-    fs.readFile(configFile, "utf8"),
-    fs.readFile(watchLaterFile, "utf8"),
-  ]);
+  // Read watched videos
+  const watchedVideos = db
+    .prepare("SELECT video_id FROM watched_videos ORDER BY watched_at DESC")
+    .all()
+    .map((row: any) => row.video_id) as string[];
 
-  let watchedVideos: string[] = [];
-  let hideWatched = false;
-  let hideMemberOnly = false;
-  let filterListId = "all";
-  let watchLater: UserState["watchLater"] = [];
+  // Read user config
+  const configRows = db
+    .prepare("SELECT key, value FROM user_config")
+    .all() as Array<{ key: string; value: string }>;
 
-  try {
-    const parsedWatched = JSON.parse(watchedRaw);
-    watchedVideos = Array.isArray(parsedWatched) ? parsedWatched : [];
-  } catch {
-    watchedVideos = [];
+  const config: Record<string, any> = {};
+  for (const row of configRows) {
+    try {
+      config[row.key] = JSON.parse(row.value);
+    } catch {
+      config[row.key] = row.value;
+    }
   }
 
-  try {
-    const parsedConfig = JSON.parse(configRaw);
-    hideWatched =
-      typeof parsedConfig.hideWatched === "boolean"
-        ? parsedConfig.hideWatched
-        : false;
-    hideMemberOnly =
-      typeof parsedConfig.hideMemberOnly === "boolean"
-        ? parsedConfig.hideMemberOnly
-        : false;
-    filterListId =
-      typeof parsedConfig.filterListId === "string"
-        ? parsedConfig.filterListId
-        : "all";
-  } catch {
-    hideWatched = false;
-    filterListId = "all";
-  }
-
-  try {
-    const parsedWatchLater = JSON.parse(watchLaterRaw);
-    watchLater = Array.isArray(parsedWatchLater) ? parsedWatchLater : [];
-  } catch {
-    watchLater = [];
-  }
+  // Read watch later
+  const watchLater = db
+    .prepare(
+      "SELECT id, video_id as videoId, title, channel, thumbnail, added_at as addedAt FROM watch_later ORDER BY added_at DESC"
+    )
+    .all() as Array<{
+    id: string;
+    videoId: string;
+    title: string;
+    channel: string;
+    thumbnail: string;
+    addedAt: string;
+  }>;
 
   return {
     watchedVideos,
-    hideWatched,
-    hideMemberOnly,
-    filterListId,
+    hideWatched: config.hideWatched ?? false,
+    hideMemberOnly: config.hideMemberOnly ?? false,
+    filterListId: config.filterListId ?? "all",
     watchLater,
   };
 }
 
 export async function writeUserState(state: UserState) {
-  await Promise.all([
-    ensureWatchedFile(),
-    ensureConfigFile(),
-    ensureWatchLaterFile(),
-  ]);
+  await ensureMigration();
+  const db = getDb();
 
-  const watchedWrite = fs.writeFile(
-    watchedFile,
-    JSON.stringify(state.watchedVideos ?? [], null, 2),
-    "utf8"
-  );
+  db.exec("BEGIN TRANSACTION");
 
-  const configWrite = fs.writeFile(
-    configFile,
-    JSON.stringify(
-      {
-        hideWatched: !!state.hideWatched,
-        hideMemberOnly: !!state.hideMemberOnly,
-        filterListId: state.filterListId ?? "all",
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
+  try {
+    // Update watched videos
+    db.exec("DELETE FROM watched_videos");
+    const watchedStmt = db.prepare(
+      "INSERT INTO watched_videos (video_id, watched_at) VALUES (?, ?)"
+    );
+    for (const videoId of state.watchedVideos ?? []) {
+      watchedStmt.run(videoId, new Date().toISOString());
+    }
 
-  const watchLaterWrite = fs.writeFile(
-    watchLaterFile,
-    JSON.stringify(state.watchLater ?? [], null, 2),
-    "utf8"
-  );
+    // Update user config
+    db.exec("DELETE FROM user_config");
+    const configStmt = db.prepare(
+      "INSERT INTO user_config (key, value) VALUES (?, ?)"
+    );
+    configStmt.run("hideWatched", JSON.stringify(!!state.hideWatched));
+    configStmt.run("hideMemberOnly", JSON.stringify(!!state.hideMemberOnly));
+    configStmt.run("filterListId", JSON.stringify(state.filterListId ?? "all"));
 
-  await Promise.all([watchedWrite, configWrite, watchLaterWrite]);
+    // Update watch later
+    db.exec("DELETE FROM watch_later");
+    const watchLaterStmt = db.prepare(
+      "INSERT INTO watch_later (id, video_id, title, channel, thumbnail, added_at) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    for (const item of state.watchLater ?? []) {
+      watchLaterStmt.run(
+        item.id,
+        item.videoId,
+        item.title,
+        item.channel,
+        item.thumbnail,
+        item.addedAt
+      );
+    }
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }

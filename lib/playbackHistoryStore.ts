@@ -1,5 +1,5 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { getDb } from "./db";
+import { migrateFromJson } from "./migrate";
 
 export interface PlaybackSession {
   videoId: string;
@@ -13,72 +13,76 @@ export interface PlaybackSession {
   completed: boolean;
 }
 
-const dataDir = path.join(process.cwd(), "data");
-const playbackHistoryFile = path.join(dataDir, "playbackHistory.json");
-
-async function ensureDir() {
-  await fs.mkdir(dataDir, { recursive: true });
-}
-
-async function ensurePlaybackHistoryFile() {
-  try {
-    await fs.access(playbackHistoryFile);
-  } catch {
-    await ensureDir();
-    await fs.writeFile(playbackHistoryFile, "[]", "utf8");
+// Run migration on first import
+let migrationPromise: Promise<void> | null = null;
+async function ensureMigration() {
+  if (!migrationPromise) {
+    migrationPromise = migrateFromJson().catch((err) => {
+      console.error("Migration failed:", err);
+    });
   }
+  await migrationPromise;
 }
 
 export async function readPlaybackHistory(): Promise<PlaybackSession[]> {
-  await ensurePlaybackHistoryFile();
-  try {
-    const data = await fs.readFile(playbackHistoryFile, "utf8");
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
+  await ensureMigration();
+  const db = getDb();
+
+  const sessions = db
+    .prepare(
+      "SELECT video_id as videoId, video_title as videoTitle, channel_id as channelId, channel_name as channelName, thumbnail, timestamp, duration, progress, completed FROM playback_history ORDER BY timestamp DESC LIMIT 500"
+    )
+    .all() as PlaybackSession[];
+
+  return sessions;
 }
 
 export async function savePlaybackSession(
   session: PlaybackSession
 ): Promise<void> {
-  await ensurePlaybackHistoryFile();
-  const history = await readPlaybackHistory();
+  await ensureMigration();
+  const db = getDb();
 
-  // Remove any existing session for this video
-  const filtered = history.filter((s) => s.videoId !== session.videoId);
-
-  // Add the new session at the beginning
-  const updated = [session, ...filtered];
-
-  // Keep only last 500 sessions to prevent file from growing too large
-  const trimmed = updated.slice(0, 500);
-
-  await fs.writeFile(
-    playbackHistoryFile,
-    JSON.stringify(trimmed, null, 2),
-    "utf8"
+  db.prepare(
+    "INSERT OR REPLACE INTO playback_history (video_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    session.videoId,
+    session.videoTitle,
+    session.channelId,
+    session.channelName,
+    session.thumbnail,
+    session.timestamp,
+    session.duration,
+    session.progress,
+    session.completed ? 1 : 0
   );
 }
 
 export async function getPlaybackSession(
   videoId: string
 ): Promise<PlaybackSession | null> {
-  const history = await readPlaybackHistory();
-  return history.find((s) => s.videoId === videoId) || null;
+  await ensureMigration();
+  const db = getDb();
+
+  const session = db
+    .prepare(
+      "SELECT video_id as videoId, video_title as videoTitle, channel_id as channelId, channel_name as channelName, thumbnail, timestamp, duration, progress, completed FROM playback_history WHERE video_id = ?"
+    )
+    .get(videoId) as PlaybackSession | undefined;
+
+  return session || null;
 }
 
 export async function clearPlaybackHistory(): Promise<void> {
-  await ensureDir();
-  await fs.writeFile(playbackHistoryFile, "[]", "utf8");
+  await ensureMigration();
+  const db = getDb();
+
+  db.exec("DELETE FROM playback_history");
 }
 
 export async function deletePlaybackSession(videoId: string): Promise<void> {
-  const history = await readPlaybackHistory();
-  const filtered = history.filter((s) => s.videoId !== videoId);
-  await fs.writeFile(
-    playbackHistoryFile,
-    JSON.stringify(filtered, null, 2),
-    "utf8"
-  );
+  await ensureMigration();
+  const db = getDb();
+
+  db.prepare("DELETE FROM playback_history WHERE video_id = ?").run(videoId);
 }

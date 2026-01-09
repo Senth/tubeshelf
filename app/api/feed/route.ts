@@ -153,37 +153,36 @@ export async function GET(req: Request) {
             `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
           );
           const result = await fetchChannelFeed(current);
-            meta = result.meta;
+          meta = result.meta;
 
-            // If the fetch returned no videos and no meta title, treat as unavailable
-            if ((result.videos || []).length === 0 && !(meta && meta.title)) {
-              const subTitle =
-                subscriptionMetadata.get(current)?.title || "(unknown)";
-              console.warn(
-                `[Feed] Channel unavailable or returned 404: ${current} - ${subTitle}`
-              );
-            }
-
-            const regularVideos = result.videos;
-            if (regularVideos.length > 0) {
-              hasVideos = true;
-              // Get the most recent upload from this channel
-              const mostRecent = regularVideos.reduce((latest, video) => {
-                const videoTime = new Date(video.publishedAt).getTime();
-                const latestTime = new Date(latest.publishedAt).getTime();
-                return videoTime > latestTime ? video : latest;
-              });
-              latestUploadTime = mostRecent.publishedAt;
-            }
-            regularVideos.forEach((video) => {
-              items.push({
-                ...video,
-                channelTitle: video.channelTitle || meta?.title,
-                thumbnail: video.thumbnail || meta?.thumbnail,
-                channelId: video.channelId || current,
-              });
-            });
+          // If the fetch returned no videos and no meta title, treat as unavailable
+          if ((result.videos || []).length === 0 && !(meta && meta.title)) {
+            const subTitle =
+              subscriptionMetadata.get(current)?.title || "(unknown)";
+            console.warn(
+              `[Feed] Channel unavailable or returned 404: ${current} - ${subTitle}`
+            );
           }
+
+          const regularVideos = result.videos;
+          if (regularVideos.length > 0) {
+            hasVideos = true;
+            // Get the most recent upload from this channel
+            const mostRecent = regularVideos.reduce((latest, video) => {
+              const videoTime = new Date(video.publishedAt).getTime();
+              const latestTime = new Date(latest.publishedAt).getTime();
+              return videoTime > latestTime ? video : latest;
+            });
+            latestUploadTime = mostRecent.publishedAt;
+          }
+          regularVideos.forEach((video) => {
+            items.push({
+              ...video,
+              channelTitle: video.channelTitle || meta?.title,
+              thumbnail: video.thumbnail || meta?.thumbnail,
+              channelId: video.channelId || current,
+            });
+          });
           // Regular videos fetched
 
           // Track the latest upload time for this channel

@@ -1,5 +1,5 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { getDb } from "./db";
+import { migrateFromJson } from "./migrate";
 
 export interface SubscriptionInList {
   id: string;
@@ -8,7 +8,7 @@ export interface SubscriptionInList {
   url: string;
   thumbnail?: string;
   addedAt: string;
-  lastUploadedAt?: string; // Tracks last video upload from this channel - not exported
+  lastUploadedAt?: string;
 }
 
 export interface SubscriptionList {
@@ -24,121 +24,114 @@ export interface SubscriptionListsData {
   defaultListId: string;
 }
 
-const dataFile = path.join(process.cwd(), "data", "subscription-lists.json");
+// Run migration on first import
+let migrationPromise: Promise<void> | null = null;
+async function ensureMigration() {
+  if (!migrationPromise) {
+    migrationPromise = migrateFromJson().catch((err) => {
+      console.error("Migration failed:", err);
+    });
+  }
+  await migrationPromise;
+}
 
-async function ensureFile() {
-  try {
-    await fs.access(dataFile);
-  } catch {
-    await fs.mkdir(path.dirname(dataFile), { recursive: true });
+async function ensureDefaultList() {
+  const db = getDb();
+  const exists = db
+    .prepare("SELECT COUNT(*) as count FROM subscription_lists")
+    .get() as { count: number };
 
-    // Try to migrate from old subscriptions.json
-    let subscriptions: SubscriptionInList[] = [];
-    const oldFile = path.join(process.cwd(), "data", "subscriptions.json");
-    try {
-      const oldData = await fs.readFile(oldFile, "utf8");
-      const parsed = JSON.parse(oldData);
-      if (Array.isArray(parsed)) {
-        subscriptions = parsed;
-      }
-    } catch {
-      // Old file doesn't exist, start fresh
-    }
-
-    const defaultList: SubscriptionList = {
-      id: "default",
-      name: "Default",
-      subscriptions,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const initialData: SubscriptionListsData = {
-      lists: [defaultList],
-      defaultListId: "default",
-    };
-    await fs.writeFile(dataFile, JSON.stringify(initialData, null, 2), "utf8");
+  if (exists.count === 0) {
+    db.prepare("INSERT INTO subscription_lists (id, name) VALUES (?, ?)").run(
+      "default",
+      "Default"
+    );
   }
 }
 
 export async function readLists(): Promise<SubscriptionListsData> {
-  await ensureFile();
-  const raw = await fs.readFile(dataFile, "utf8");
+  await ensureMigration();
+  await ensureDefaultList();
 
-  // Handle empty or whitespace-only files
-  if (!raw || !raw.trim()) {
-    console.warn("[Store] Empty subscription lists file, creating defaults");
-    const defaultData: SubscriptionListsData = {
-      lists: [
-        {
-          id: "default",
-          name: "Default",
-          subscriptions: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-      defaultListId: "default",
-    };
-    await writeLists(defaultData);
-    return defaultData;
-  }
+  const db = getDb();
 
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed.lists && Array.isArray(parsed.lists)) {
-      return parsed;
-    }
-    // Migration from old format
-    console.warn("[Store] Migrating subscription data from old format");
-    return {
-      lists: [
-        {
-          id: "default",
-          name: "Default",
-          subscriptions: parsed,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-      defaultListId: "default",
-    };
-  } catch (err) {
-    console.error("[Store] Failed to read subscription lists, using defaults", {
-      error: err instanceof Error ? err.message : String(err),
+  const lists = db
+    .prepare(
+      "SELECT id, name, created_at as createdAt FROM subscription_lists ORDER BY created_at"
+    )
+    .all() as Array<{ id: string; name: string; createdAt: string }>;
+
+  const result: SubscriptionList[] = [];
+
+  for (const list of lists) {
+    const subscriptions = db
+      .prepare(
+        "SELECT id, channel_id as channelId, title, url, thumbnail, added_at as addedAt, last_uploaded_at as lastUploadedAt FROM subscriptions WHERE list_id = ? ORDER BY added_at DESC"
+      )
+      .all(list.id) as SubscriptionInList[];
+
+    result.push({
+      id: list.id,
+      name: list.name,
+      subscriptions,
+      createdAt: list.createdAt,
+      updatedAt: list.createdAt, // SQLite doesn't track update time separately
     });
-    return {
-      lists: [
-        {
-          id: "default",
-          name: "Default",
-          subscriptions: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-      defaultListId: "default",
-    };
   }
+
+  return {
+    lists: result,
+    defaultListId: "default",
+  };
 }
 
 export async function writeLists(data: SubscriptionListsData) {
-  await ensureFile();
-  // Atomic write: write to temp file first, then rename
-  const tempFile = dataFile + ".tmp";
+  await ensureMigration();
+  const db = getDb();
+
+  db.exec("BEGIN TRANSACTION");
+
   try {
-    await fs.writeFile(tempFile, JSON.stringify(data, null, 2), "utf8");
-    await fs.rename(tempFile, dataFile);
-  } catch (err) {
-    // Clean up temp file if rename fails
-    try {
-      await fs.unlink(tempFile);
-    } catch {}
-    throw err;
+    // Clear existing data
+    db.exec("DELETE FROM subscriptions");
+    db.exec("DELETE FROM subscription_lists");
+
+    // Insert lists and subscriptions
+    const listStmt = db.prepare(
+      "INSERT INTO subscription_lists (id, name, created_at) VALUES (?, ?, ?)"
+    );
+    const subStmt = db.prepare(
+      "INSERT INTO subscriptions (id, list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+
+    for (const list of data.lists) {
+      listStmt.run(list.id, list.name, list.createdAt);
+
+      for (const sub of list.subscriptions) {
+        subStmt.run(
+          sub.id,
+          list.id,
+          sub.channelId,
+          sub.title,
+          sub.url,
+          sub.thumbnail || null,
+          sub.addedAt,
+          sub.lastUploadedAt || null
+        );
+      }
+    }
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
 }
 
 export async function createList(name: string): Promise<SubscriptionList> {
-  const data = await readLists();
+  await ensureMigration();
+  const db = getDb();
+
   const newList: SubscriptionList = {
     id: Date.now().toString(),
     name,
@@ -146,8 +139,12 @@ export async function createList(name: string): Promise<SubscriptionList> {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  data.lists.push(newList);
-  await writeLists(data);
+
+  db.prepare("INSERT INTO subscription_lists (id, name) VALUES (?, ?)").run(
+    newList.id,
+    name
+  );
+
   return newList;
 }
 
@@ -155,41 +152,54 @@ export async function updateList(
   id: string,
   updates: Partial<SubscriptionList>
 ) {
-  const data = await readLists();
-  const list = data.lists.find((l) => l.id === id);
-  if (!list) throw new Error("List not found");
-  Object.assign(list, updates, {
-    updatedAt: new Date().toISOString(),
-  });
-  await writeLists(data);
+  await ensureMigration();
+  const db = getDb();
+
+  if (updates.name) {
+    db.prepare("UPDATE subscription_lists SET name = ? WHERE id = ?").run(
+      updates.name,
+      id
+    );
+  }
 }
 
 export async function deleteList(id: string) {
-  const data = await readLists();
-  if (data.defaultListId === id) {
-    console.error("[Store] Cannot delete default list", { id });
+  await ensureMigration();
+  if (id === "default") {
     throw new Error("Cannot delete default list");
   }
-  data.lists = data.lists.filter((l) => l.id !== id);
-  await writeLists(data);
+
+  const db = getDb();
+  db.prepare("DELETE FROM subscription_lists WHERE id = ?").run(id);
+  // Subscriptions are cascade deleted
 }
 
 export async function addSubscriptionToList(
   listId: string,
   subscription: SubscriptionInList
 ) {
-  const data = await readLists();
-  const list = data.lists.find((l) => l.id === listId);
-  if (!list) {
-    console.error("[Store] Cannot add subscription: List not found", {
+  await ensureMigration();
+  const db = getDb();
+
+  const existing = db
+    .prepare(
+      "SELECT id FROM subscriptions WHERE list_id = ? AND channel_id = ?"
+    )
+    .get(listId, subscription.channelId);
+
+  if (!existing) {
+    db.prepare(
+      "INSERT INTO subscriptions (id, list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      subscription.id,
       listId,
-    });
-    throw new Error("List not found");
-  }
-  if (!list.subscriptions.some((s) => s.channelId === subscription.channelId)) {
-    list.subscriptions.push(subscription);
-    list.updatedAt = new Date().toISOString();
-    await writeLists(data);
+      subscription.channelId,
+      subscription.title,
+      subscription.url,
+      subscription.thumbnail || null,
+      subscription.addedAt,
+      subscription.lastUploadedAt || null
+    );
   }
 }
 
@@ -197,42 +207,26 @@ export async function removeSubscriptionFromList(
   listId: string,
   channelId: string
 ) {
-  const data = await readLists();
-  const list = data.lists.find((l) => l.id === listId);
-  if (!list) {
-    console.error("[Store] Cannot remove subscription: List not found", {
-      listId,
-    });
-    throw new Error("List not found");
-  }
-  list.subscriptions = list.subscriptions.filter(
-    (s) => s.channelId !== channelId
-  );
-  list.updatedAt = new Date().toISOString();
-  await writeLists(data);
+  await ensureMigration();
+  const db = getDb();
+
+  db.prepare(
+    "DELETE FROM subscriptions WHERE list_id = ? AND channel_id = ?"
+  ).run(listId, channelId);
 }
 
 export async function clearListSubscriptions(listId: string) {
-  const data = await readLists();
-  const list = data.lists.find((l) => l.id === listId);
-  if (!list) {
-    console.error("[Store] Cannot clear subscriptions: List not found", {
-      listId,
-    });
-    throw new Error("List not found");
-  }
-  list.subscriptions = [];
-  list.updatedAt = new Date().toISOString();
-  await writeLists(data);
+  await ensureMigration();
+  const db = getDb();
+
+  db.prepare("DELETE FROM subscriptions WHERE list_id = ?").run(listId);
 }
 
 export async function clearAllSubscriptions() {
-  const data = await readLists();
-  data.lists.forEach((list) => {
-    list.subscriptions = [];
-    list.updatedAt = new Date().toISOString();
-  });
-  await writeLists(data);
+  await ensureMigration();
+  const db = getDb();
+
+  db.exec("DELETE FROM subscriptions");
 }
 
 export async function moveSubscription(
@@ -240,53 +234,24 @@ export async function moveSubscription(
   toListId: string,
   channelId: string
 ) {
-  const data = await readLists();
-  const fromList = data.lists.find((l) => l.id === fromListId);
-  const toList = data.lists.find((l) => l.id === toListId);
+  await ensureMigration();
+  const db = getDb();
 
-  if (!fromList) {
-    console.error("[Store] Cannot move subscription: Source list not found", {
-      fromListId,
-      toListId,
-      channelId,
-    });
-    throw new Error("Source list not found");
+  const existing = db
+    .prepare(
+      "SELECT id FROM subscriptions WHERE list_id = ? AND channel_id = ?"
+    )
+    .get(toListId, channelId);
+
+  if (existing) {
+    // Already in target list, just remove from source
+    db.prepare(
+      "DELETE FROM subscriptions WHERE list_id = ? AND channel_id = ?"
+    ).run(fromListId, channelId);
+  } else {
+    // Move to target list
+    db.prepare(
+      "UPDATE subscriptions SET list_id = ? WHERE list_id = ? AND channel_id = ?"
+    ).run(toListId, fromListId, channelId);
   }
-  if (!toList) {
-    console.error("[Store] Cannot move subscription: Target list not found", {
-      fromListId,
-      toListId,
-      channelId,
-    });
-    throw new Error("Target list not found");
-  }
-
-  const subscription = fromList.subscriptions.find(
-    (s) => s.channelId === channelId
-  );
-  if (!subscription) {
-    console.error(
-      "[Store] Cannot move subscription: Subscription not found in source list",
-      {
-        fromListId,
-        toListId,
-        channelId,
-      }
-    );
-    throw new Error("Subscription not found");
-  }
-
-  // Remove from source list
-  fromList.subscriptions = fromList.subscriptions.filter(
-    (s) => s.channelId !== channelId
-  );
-  fromList.updatedAt = new Date().toISOString();
-
-  // Add to target list if not already there
-  if (!toList.subscriptions.some((s) => s.channelId === channelId)) {
-    toList.subscriptions.push(subscription);
-    toList.updatedAt = new Date().toISOString();
-  }
-
-  await writeLists(data);
 }

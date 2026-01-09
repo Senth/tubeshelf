@@ -1,5 +1,5 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { join } from "path";
+import { getDb } from "./db";
+import { migrateFromJson } from "./migrate";
 
 export interface AppSettings {
   defaultSortOrder: "newest" | "oldest";
@@ -17,27 +17,52 @@ export const defaultSettings: AppSettings = {
   fetchMethod: "standard",
 };
 
-const dataDir = "data";
-const settingsFile = join(dataDir, "settings.json");
+// Run migration on first import
+let migrationPromise: Promise<void> | null = null;
+async function ensureMigration() {
+  if (!migrationPromise) {
+    migrationPromise = migrateFromJson().catch((err) => {
+      console.error("Migration failed:", err);
+    });
+  }
+  await migrationPromise;
+}
 
 export async function readSettings(): Promise<AppSettings> {
-  try {
-    const data = await readFile(settingsFile, "utf-8");
-    return { ...defaultSettings, ...JSON.parse(data) };
-  } catch {
-    return defaultSettings;
+  await ensureMigration();
+  const db = getDb();
+
+  const settings: Partial<AppSettings> = { ...defaultSettings };
+
+  const rows = db.prepare("SELECT key, value FROM settings").all() as Array<{
+    key: string;
+    value: string;
+  }>;
+
+  for (const row of rows) {
+    try {
+      const value = JSON.parse(row.value);
+      if (row.key in settings) {
+        (settings as any)[row.key] = value;
+      }
+    } catch {
+      // Skip invalid JSON
+    }
   }
+
+  return settings as AppSettings;
 }
 
 export async function writeSettings(
   settings: Partial<AppSettings>
 ): Promise<void> {
-  await mkdir(dataDir, { recursive: true });
+  await ensureMigration();
+  const db = getDb();
+
   const current = await readSettings();
   const updated = { ...current, ...settings };
 
   // Only keep properties that are in AppSettings interface
-  const validSettings: Partial<AppSettings> = {};
   const keys: (keyof AppSettings)[] = [
     "defaultSortOrder",
     "theme",
@@ -46,15 +71,13 @@ export async function writeSettings(
     "fetchMethod",
   ];
 
+  const stmt = db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)"
+  );
+
   for (const key of keys) {
     if (key in updated) {
-      validSettings[key] = updated[key];
+      stmt.run(key, JSON.stringify(updated[key]));
     }
   }
-
-  await writeFile(
-    settingsFile,
-    JSON.stringify(validSettings, null, 2),
-    "utf-8"
-  );
 }
