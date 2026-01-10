@@ -19,12 +19,12 @@
 
 ## Features
 
-- **Chronological feed** - Videos sorted by upload time, newest first
-- **Subscribe easily** - Add channels via URL, ID, or @handle
-- **Import/Export** - OPML support for migrating subscriptions
-- **Mark as watched** - Track what you've seen
-- **Hide watched videos** - Filter option to show only unwatched content
-- **Watch later** - Save videos for later viewing
+- **Chronological feed** - Videos sorted by upload time, no algorithm
+- **Multiple subscription lists** - Organize channels with tags and custom lists
+- **Watch tracking** - Mark videos as watched, hide unwatched, built-in player with progress tracking
+- **Watch later & history** - Save videos for later or review your playback history
+- **Import/export** - Full OPML support for easy subscription migration
+- **User-Management** - Manage users via OIDC
 
 ## Quick Start
 
@@ -85,6 +85,10 @@ It fetches videos from your subscriptions and displays them chronologically. Cli
 
 ## AI Assistance Disclaimer
 This project was developed with assistance from AI/LLMs (including GitHub Copilot, ChatGPT, and related tools), supervised by humans who occasionally knew what they were doing.
+
+---
+
+<sub>TubeShelf is designed primarily for local/home network use.</sub>
 
 ## License
 

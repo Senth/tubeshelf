@@ -1,6 +1,58 @@
 import { getDb } from "./db";
 import * as jose from "jose";
+import crypto from "crypto";
 import { createUser, getUserByOIDC, User } from "./auth";
+
+// Encryption key derivation - uses a stable key from environment or generates from db path
+function getEncryptionKey(): Buffer {
+  const secret =
+    process.env.OIDC_ENCRYPTION_KEY ||
+    process.env.SECRET_KEY ||
+    "tubeshelf-default-key-change-me";
+  return crypto.scryptSync(secret, "tubeshelf-oidc-salt", 32);
+}
+
+// Encrypt client secret before storing
+function encryptSecret(plaintext: string): string {
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+  // Format: iv:authTag:encrypted (all base64)
+  return `${iv.toString("base64")}:${authTag.toString(
+    "base64"
+  )}:${encrypted.toString("base64")}`;
+}
+
+// Decrypt client secret when reading
+function decryptSecret(ciphertext: string): string {
+  // Check if it's already plaintext (for migration from unencrypted)
+  if (!ciphertext.includes(":")) {
+    return ciphertext;
+  }
+  try {
+    const key = getEncryptionKey();
+    const [ivB64, authTagB64, encryptedB64] = ciphertext.split(":");
+    const iv = Buffer.from(ivB64, "base64");
+    const authTag = Buffer.from(authTagB64, "base64");
+    const encrypted = Buffer.from(encryptedB64, "base64");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([
+      decipher.update(encrypted),
+      decipher.final(),
+    ]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    // If decryption fails, assume it's plaintext (migration case)
+    console.warn("[OIDC] Failed to decrypt secret, assuming plaintext");
+    return ciphertext;
+  }
+}
 
 export interface OIDCProvider {
   id: string;
@@ -58,6 +110,7 @@ export function getOIDCProviders(): OIDCProvider[] {
 
   return providers.map((p) => ({
     ...p,
+    clientSecret: decryptSecret(p.clientSecret),
     autoProvision: p.autoProvision === 1,
   })) as OIDCProvider[];
 }
@@ -107,6 +160,7 @@ export function getOIDCProvider(id: string): OIDCProvider | null {
 
   return {
     ...provider,
+    clientSecret: decryptSecret(provider.clientSecret),
     autoProvision: provider.autoProvision === 1,
   };
 }
@@ -128,6 +182,9 @@ export function createOIDCProvider(data: {
 }): OIDCProvider {
   const db = getDb();
 
+  // Encrypt the client secret before storing
+  const encryptedSecret = encryptSecret(data.clientSecret);
+
   // Use INSERT OR REPLACE to handle case where provider with same ID exists
   db.prepare(
     `INSERT OR REPLACE INTO oidc_providers (
@@ -145,7 +202,7 @@ export function createOIDCProvider(data: {
     data.domain || null,
     data.redirectUri || null,
     data.clientId,
-    data.clientSecret,
+    encryptedSecret,
     data.scopes || "openid profile email groups",
     data.autoProvision ? 1 : 0,
     data.groupClaimName || null,
@@ -153,34 +210,23 @@ export function createOIDCProvider(data: {
     1 // Enable by default
   );
 
-  // Need to get provider without credential validation for creation
-  const db2 = getDb();
-  const provider = db2
-    .prepare(
-      `SELECT 
-        id, 
-        name, 
-        issuer,
-        base_url as baseUrl,
-        discovery_url as discoveryUrl,
-        domain,
-        redirect_uri as redirectUri,
-        client_id as clientId, 
-        client_secret as clientSecret,
-        scopes,
-        auto_provision as autoProvision,
-        group_claim_name as groupClaimName,
-        admin_group_value as adminGroupValue,
-        enabled, 
-        created_at as createdAt 
-      FROM oidc_providers 
-      WHERE id = ?`
-    )
-    .get(data.id) as any;
-
+  // Return the provider with decrypted secret
   return {
-    ...provider,
-    autoProvision: provider.autoProvision === 1,
+    id: data.id,
+    name: data.name,
+    issuer: data.issuer,
+    baseUrl: data.baseUrl,
+    discoveryUrl: data.discoveryUrl,
+    domain: data.domain,
+    redirectUri: data.redirectUri,
+    clientId: data.clientId,
+    clientSecret: data.clientSecret, // Return original (not encrypted)
+    scopes: data.scopes || "openid profile email groups",
+    autoProvision: data.autoProvision || false,
+    groupClaimName: data.groupClaimName,
+    adminGroupValue: data.adminGroupValue,
+    enabled: true,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -222,7 +268,7 @@ export function updateOIDCProvider(
   }
   if (data.clientSecret !== undefined) {
     updates.push("client_secret = ?");
-    values.push(data.clientSecret);
+    values.push(encryptSecret(data.clientSecret));
   }
   if (data.scopes !== undefined) {
     updates.push("scopes = ?");

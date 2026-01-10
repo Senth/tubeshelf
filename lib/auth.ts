@@ -21,11 +21,13 @@ export interface Session {
   createdAt: string;
 }
 
-const SESSION_DURATION_DAYS = 30;
+// Security constants
+const BCRYPT_ROUNDS = 12;
+const SESSION_DURATION_DAYS = 7;
 
 // Password utilities
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
 export async function verifyPassword(
@@ -227,7 +229,10 @@ export async function updateUserPassword(
   const passwordHash = await hashPassword(newPassword);
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
     passwordHash,
-    userId);
+    userId
+  );
+  // Invalidate all existing sessions for security
+  deleteUserSessions(userId);
 }
 
 export function updateUser(
