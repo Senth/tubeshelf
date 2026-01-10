@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bookmark, Trash2, Eye, Share2, Check } from "lucide-react";
+import { Bookmark, Trash2, Eye, Share2, Check, Clock } from "lucide-react";
 
 interface WatchLaterItem {
   id: string;
@@ -42,92 +42,120 @@ export function WatchLater({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 mb-4">
+        <Bookmark className="w-5 h-5 text-primary" />
+        <h2 className="text-lg font-semibold">Watch Later ({items.length})</h2>
+      </div>
+
       {items.map((item) => {
         const isWatched = watchedVideos?.has(item.videoId);
+        const addedDate = new Date(item.addedAt);
+        const timeAgo = getTimeAgo(addedDate);
 
         return (
           <div
             key={item.id}
-            className="flex gap-3 p-3 rounded border border-border hover:bg-secondary transition-colors group"
+            className="group bg-card border border-border rounded-lg overflow-hidden hover:border-primary/50 hover:shadow-md transition-all duration-200"
           >
-            {/* Thumbnail */}
-            <div className="relative w-24 h-16 flex-shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.thumbnail}
-                alt={item.title}
-                className="w-full h-full object-cover rounded cursor-pointer"
-                onClick={() => onPlay?.(item.videoId)}
-              />
-
-              {isWatched && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none rounded">
-                  <Eye className="w-6 h-6 text-white" />
-                </div>
-              )}
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              <h4
-                className="font-medium text-sm line-clamp-2 text-foreground group-hover:text-primary transition-colors cursor-pointer"
-                onClick={() => onPlay?.(item.videoId)}
-              >
-                {item.title}
-              </h4>
-              <p className="text-xs text-muted-foreground mt-1">
-                {item.channel}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Saved{" "}
-                {item.addedAt.toLocaleDateString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </p>
-            </div>
-
-            {/* Actions: Mark watched/unwatched, Share, Remove (order consistent) */}
-            <div className="flex gap-1 flex-shrink-0 items-center">
-              <button
-                onClick={() => onToggleWatched?.(item.videoId)}
-                className="p-2 bg-primary/20 hover:bg-primary/30 rounded transition-colors cursor-pointer hover:scale-110"
-                title={isWatched ? "Mark as unwatched" : "Mark as watched"}
-              >
-                <Eye
-                  className={`w-4 h-4 ${
-                    isWatched ? "text-primary" : "text-muted-foreground"
-                  }`}
+            {/* Main Content */}
+            <div className="flex gap-3 p-3">
+              {/* Thumbnail */}
+              <div className="relative w-28 h-16 flex-shrink-0 rounded-md overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.thumbnail}
+                  alt={item.title}
+                  className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                  onClick={() => onPlay?.(item.videoId)}
                 />
-              </button>
-              <button
-                onClick={() => {
-                  onShare?.(item.videoId);
-                  setCopiedVideoId(item.videoId);
-                  setTimeout(() => setCopiedVideoId(null), 2000);
-                }}
-                className="p-2 bg-primary/20 hover:bg-primary/30 rounded transition-colors cursor-pointer hover:scale-110"
-                title="Share"
-              >
-                {copiedVideoId === item.videoId ? (
-                  <Check className="w-4 h-4 text-green-500" />
-                ) : (
-                  <Share2 className="w-4 h-4 text-muted-foreground" />
+
+                {isWatched && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-md">
+                    <Eye className="w-5 h-5 text-white" />
+                  </div>
                 )}
-              </button>
-              <button
-                onClick={() => onRemove?.(item.id)}
-                className="p-2 bg-destructive/20 hover:bg-destructive/30 rounded transition-colors cursor-pointer hover:scale-110"
-                title="Remove"
-              >
-                <Trash2 className="w-4 h-4 text-destructive" />
-              </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <h4
+                  className="font-semibold text-sm line-clamp-2 text-foreground group-hover:text-primary transition-colors cursor-pointer"
+                  onClick={() => onPlay?.(item.videoId)}
+                >
+                  {item.title}
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {item.channel}
+                </p>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
+                  <Clock className="w-3 h-3" />
+                  {timeAgo}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-1 flex-shrink-0 items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => onToggleWatched?.(item.videoId)}
+                  className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                  title={isWatched ? "Mark as unwatched" : "Mark as watched"}
+                >
+                  <Eye
+                    className={`w-4 h-4 ${
+                      isWatched ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  />
+                </button>
+                <button
+                  onClick={() => {
+                    onShare?.(item.videoId);
+                    setCopiedVideoId(item.videoId);
+                    setTimeout(() => setCopiedVideoId(null), 2000);
+                  }}
+                  className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                  title="Copy link"
+                >
+                  {copiedVideoId === item.videoId ? (
+                    <Check className="w-4 h-4 text-emerald-500" />
+                  ) : (
+                    <Share2 className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </button>
+                <button
+                  onClick={() => onRemove?.(item.id)}
+                  className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
+                  title="Remove"
+                >
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </button>
+              </div>
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+function getTimeAgo(date: Date): string {
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+
+  const intervals = {
+    year: 31536000,
+    month: 2592000,
+    week: 604800,
+    day: 86400,
+    hour: 3600,
+    minute: 60,
+  };
+
+  for (const [name, secondsInUnit] of Object.entries(intervals)) {
+    const interval = Math.floor(seconds / secondsInUnit);
+    if (interval >= 1) {
+      return `${interval} ${name}${interval > 1 ? "s" : ""} ago`;
+    }
+  }
+
+  return "just now";
 }

@@ -58,6 +58,24 @@ docker compose up -d
 
 Access the web UI at **http://localhost:3000**
 
+## CLI Management
+
+Run commands in the container to manage users and settings:
+
+```bash
+# Reset local user password
+docker exec tubeshelf node server.js reset-password <email> <password>
+
+# Toggle OIDC-only login mode
+docker exec tubeshelf node server.js toggle-oidc-only [enable|disable]
+
+# Get OIDC-only mode status
+docker exec tubeshelf node server.js get-oidc-only
+
+# List local users
+docker exec tubeshelf node server.js list-local-users
+```
+
 ## Why TubeShelf?
 
 Some Invidious instances do work, though with varying issues. However, they aim to replicate the entire YouTube interface. **TubeShelf** takes a different path: instead of building an alternative YouTube frontend, it focuses on a single, well-defined goal:  

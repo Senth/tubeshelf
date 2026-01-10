@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { readLists } from "@/lib/subscriptionListStore";
+import { getUserFromSession } from "@/lib/auth";
 
 function escapeXml(value: string) {
   return value
@@ -10,11 +12,18 @@ function escapeXml(value: string) {
 }
 
 export async function GET(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const format = searchParams.get("format") || "opml";
   const listId = searchParams.get("listId") || "all";
 
-  const listsData = await readLists();
+  const listsData = await readLists(user.id);
   let subs: any[] = [];
 
   // Get subscriptions from specified list or all lists

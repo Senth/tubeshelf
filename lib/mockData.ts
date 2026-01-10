@@ -163,6 +163,27 @@ export async function updateSettings(updates: Record<string, any>) {
   return res.json();
 }
 
+export async function getUserState() {
+  const res = await fetch("/api/user-state", { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error("Failed to fetch user state");
+  }
+  return res.json();
+}
+
+export async function updateUserState(state: Record<string, any>) {
+  const res = await fetch("/api/user-state", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(state),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to update user state");
+  }
+  return res.json();
+}
+
 export async function clearWatchHistory() {
   const res = await fetch("/api/danger/clear-watch-history", {
     method: "POST",

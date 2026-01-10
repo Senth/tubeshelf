@@ -6,9 +6,9 @@ import {
   Plus,
   Upload,
   Download,
-  ChevronDown,
   Trash2,
-  Shuffle,
+  Rss,
+  FolderPlus,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -238,39 +238,48 @@ export function SubscriptionManager({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="border-b border-border">
           <div className="flex items-center justify-between p-6 pb-4">
-            <h2 className="text-xl font-bold">
-              Subscriptions
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                ({subscriptions.length})
-              </span>
-            </h2>
-            <Button
+            <div className="flex items-center gap-3">
+              <Rss className="w-6 h-6 text-primary" />
+              <div>
+                <h2 className="text-xl font-bold">
+                  Subscriptions
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    ({subscriptions.length})
+                  </span>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Manage your channels
+                </p>
+              </div>
+            </div>
+            <button
               onClick={onClose}
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              className="p-2 hover:bg-secondary rounded-lg transition-colors"
+              title="Close"
             >
               <X className="w-5 h-5" />
-            </Button>
+            </button>
           </div>
 
           {/* List Selector & Actions */}
-          <div className="px-6 pb-4">
-            <div className="flex gap-2 items-start">
+          <div className="px-6 pb-4 space-y-3">
+            {/* List Selection and Controls */}
+            <div className="flex gap-2 items-center flex-wrap">
               {/* List Dropdown */}
-              <div className="flex-1 relative">
+              <div className="flex-1 min-w-64 relative">
                 <select
                   value={displayedList?.id || ""}
                   onChange={(e) => onSelectList?.(e.target.value)}
-                  className="w-full h-10 px-3 py-2 bg-secondary border border-border rounded-lg text-sm font-medium appearance-none cursor-pointer hover:bg-secondary/80 transition-colors pr-8"
+                  className="w-full h-9 px-3 py-2 bg-card border border-border rounded-lg text-sm font-medium appearance-none cursor-pointer hover:border-primary/50 transition-colors"
                   style={{
                     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                     backgroundRepeat: "no-repeat",
                     backgroundPosition: "right 0.75rem center",
+                    paddingRight: "2rem",
                   }}
                 >
                   {[...lists]
@@ -286,58 +295,51 @@ export function SubscriptionManager({
               </div>
 
               {/* Action Buttons */}
-              <Button
+              <button
                 onClick={() => setShowCreateList(!showCreateList)}
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 shrink-0"
+                className="p-2 hover:bg-secondary rounded-lg transition-colors"
                 title="New list"
               >
-                <Plus className="w-4 h-4" />
-              </Button>
+                <FolderPlus className="w-4 h-4" />
+              </button>
 
-              <Button
+              <button
                 onClick={() =>
                   handleDeleteList(displayedList?.id || currentListId)
                 }
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 shrink-0 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                disabled={!displayedList || displayedList.id === "default"}
+                className="p-2 hover:bg-destructive/10 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-colors text-destructive"
                 title={
                   displayedList?.id === "default"
                     ? "Cannot delete default list"
                     : "Delete current list"
                 }
-                disabled={!displayedList || displayedList.id === "default"}
               >
                 <Trash2 className="w-4 h-4" />
-              </Button>
+              </button>
 
-              {/* Import button before Export; Export positioned to the far right */}
-              <Button
+              {/* Import button */}
+              <button
                 onClick={() => fileInputRef.current?.click()}
-                variant="outline"
-                size="icon"
                 disabled={importing}
+                className="p-2 hover:bg-secondary disabled:opacity-50 rounded-lg transition-colors"
                 title="Import OPML or JSON"
-                className="h-10 w-10 shrink-0"
               >
                 <Upload className="w-4 h-4" />
-              </Button>
+              </button>
 
+              {/* Export menu */}
               <div className="relative">
-                <Button
+                <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
-                  variant="outline"
-                  size="icon"
                   disabled={exporting}
+                  className="p-2 hover:bg-secondary disabled:opacity-50 rounded-lg transition-colors"
                   title="Export subscriptions"
-                  className="h-10 w-10 shrink-0"
                 >
                   <Download className="w-4 h-4" />
-                </Button>
+                </button>
                 {showExportMenu && (
-                  <div className="absolute right-0 mt-1 w-40 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
                     <button
                       onClick={() => handleExport("opml")}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors"
@@ -357,14 +359,14 @@ export function SubscriptionManager({
 
             {/* Create List Form */}
             {showCreateList && (
-              <div className="mt-3 p-3 bg-secondary/50 rounded-lg border border-border">
+              <div className="p-3 bg-secondary/50 rounded-lg border border-border space-y-2">
                 <div className="flex gap-2">
                   <Input
                     type="text"
                     value={newListName}
                     onChange={(e) => setNewListName(e.target.value)}
                     placeholder="New list name..."
-                    className="text-sm h-9"
+                    className="text-sm h-8 flex-1"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleCreateList();
                       else if (e.key === "Escape") setShowCreateList(false);
@@ -375,15 +377,15 @@ export function SubscriptionManager({
                     onClick={handleCreateList}
                     variant="default"
                     size="sm"
-                    className="h-9"
+                    className="h-8"
                   >
                     Create
                   </Button>
                   <Button
                     onClick={() => setShowCreateList(false)}
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="h-9"
+                    className="h-8"
                   >
                     Cancel
                   </Button>
@@ -394,21 +396,22 @@ export function SubscriptionManager({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {/* Inline Toasts */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Messages */}
           {success && (
-            <div className="mb-3 p-2 rounded bg-emerald-600/15 border border-emerald-600/30 text-emerald-500 text-xs">
+            <div className="p-3 rounded-lg bg-emerald-600/15 border border-emerald-600/30 text-emerald-500 text-sm">
               {success}
             </div>
           )}
           {error && (
-            <div className="mb-3 p-2 rounded bg-destructive/15 border border-destructive/30 text-destructive text-xs">
+            <div className="p-3 rounded-lg bg-destructive/15 border border-destructive/30 text-destructive text-sm">
               {error}
             </div>
           )}
-          {/* Add New */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">
+
+          {/* Add New Subscription */}
+          <div>
+            <label className="block text-sm font-semibold mb-2">
               Add Channel
             </label>
             <div className="flex gap-2">
@@ -416,25 +419,34 @@ export function SubscriptionManager({
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAdd();
+                }}
                 placeholder="Channel URL or ID..."
-                className="flex-1 text-sm"
+                className="flex-1 text-sm h-9"
               />
               <Button
                 onClick={handleAdd}
                 disabled={loading}
                 variant="default"
-                size="icon"
+                size="sm"
+                className="h-9"
               >
                 <Plus className="w-4 h-4" />
               </Button>
             </div>
-            {/* per-field error already surfaced by toast above */}
           </div>
 
-          {/* Import Info */}
-          <div className="mb-4 p-3 bg-secondary/50 rounded text-xs text-muted-foreground">
-            Import OPML files from other services or JSON files (Invidious
-            format) using the upload button above.
+          {/* Search */}
+          <div>
+            <label className="block text-sm font-semibold mb-2">Search</label>
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title or URL..."
+              className="text-sm h-9"
+            />
           </div>
 
           <input
@@ -445,20 +457,8 @@ export function SubscriptionManager({
             onChange={handleFileChange}
           />
 
-          {/* Search Subscriptions */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Search</label>
-            <Input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by title or URL..."
-              className="text-sm"
-            />
-          </div>
-
           {/* Subscriptions List */}
-          <div className="space-y-3">
+          <div className="space-y-2">
             {subscriptionsWithCache
               .filter(
                 (sub) =>
@@ -468,15 +468,16 @@ export function SubscriptionManager({
               .map((sub) => (
                 <div
                   key={sub.id}
-                  className="flex items-center gap-2 p-3 rounded border border-border hover:bg-secondary transition-colors"
+                  className="group bg-card border border-border rounded-lg p-3 hover:border-primary/50 hover:shadow-md transition-all duration-200 flex items-center gap-3"
                 >
+                  {/* Thumbnail */}
                   <a
                     href={sub.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-3 flex-1 min-w-0"
+                    className="flex-shrink-0"
                   >
-                    <div className="w-10 h-10 rounded-full bg-secondary overflow-hidden">
+                    <div className="w-10 h-10 rounded-full bg-secondary overflow-hidden hover:scale-110 transition-transform duration-200">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={
@@ -487,10 +488,8 @@ export function SubscriptionManager({
                             : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23e5e7eb' width='100' height='100'/%3E%3Ccircle cx='50' cy='35' r='20' fill='%239ca3af'/%3E%3Cpath d='M 30 70 Q 30 60 50 60 Q 70 60 70 70 L 70 100 L 30 100 Z' fill='%239ca3af'/%3E%3C/svg%3E"
                         }
                         alt={sub.title}
-                        className="w-10 h-10 rounded-full object-cover animate-pulse"
+                        className="w-10 h-10 rounded-full object-cover"
                         onLoad={(e) => {
-                          e.currentTarget.classList.remove("animate-pulse");
-                          // Cache the thumbnail URL when it loads successfully
                           if (sub.thumbnail && !thumbnailCache[sub.url]) {
                             setThumbnailCache((prev) => ({
                               ...prev,
@@ -499,73 +498,87 @@ export function SubscriptionManager({
                           }
                         }}
                         onError={(e) => {
-                          e.currentTarget.classList.add("animate-pulse");
+                          e.currentTarget.classList.add("opacity-50");
                         }}
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {sub.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        Added{" "}
-                        {new Date(sub.addedAt).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </p>
-                    </div>
                   </a>
 
-                  {/* Move dropdown - only show if there are other lists */}
-                  {lists.length > 1 && onMove && (
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setMovingSubId(movingSubId === sub.id ? null : sub.id)
-                        }
-                        className="p-2 bg-primary/20 hover:bg-primary/30 rounded transition-colors cursor-pointer hover:scale-110"
-                        title="Move to another list"
-                      >
-                        <Shuffle className="w-4 h-4 text-primary" />
-                      </button>
-                      {movingSubId === sub.id && (
-                        <div className="absolute right-0 bottom-full mb-1 w-48 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
-                          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border bg-secondary/30">
-                            Move to another list
-                          </div>
-                          {lists
-                            .filter((list) => list.id !== currentListId)
-                            .map((list) => (
-                              <button
-                                key={list.id}
-                                onClick={() => handleMove(sub.id, list.id)}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2"
-                              >
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary"></span>
-                                {list.name}
-                              </button>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => onRemove?.(sub.id)}
-                    className="p-2 bg-destructive/20 hover:bg-destructive/30 rounded transition-colors cursor-pointer hover:scale-110"
-                    title="Remove subscription"
+                  {/* Content */}
+                  <a
+                    href={sub.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 min-w-0 hover:text-primary transition-colors"
                   >
-                    <X className="w-4 h-4 text-destructive" />
-                  </button>
+                    <p className="font-semibold text-sm truncate group-hover:text-primary">
+                      {sub.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      Added{" "}
+                      {new Date(sub.addedAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </a>
+
+                  {/* Actions */}
+                  <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Move dropdown - only show if there are other lists */}
+                    {lists.length > 1 && onMove && (
+                      <div className="relative">
+                        <button
+                          onClick={() =>
+                            setMovingSubId(
+                              movingSubId === sub.id ? null : sub.id
+                            )
+                          }
+                          className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                          title="Move to another list"
+                        >
+                          <FolderPlus className="w-4 h-4 text-primary" />
+                        </button>
+                        {movingSubId === sub.id && (
+                          <div className="absolute right-0 bottom-full mb-2 w-48 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
+                            <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border bg-secondary/30">
+                              Move to list
+                            </div>
+                            {lists
+                              .filter((list) => list.id !== currentListId)
+                              .map((list) => (
+                                <button
+                                  key={list.id}
+                                  onClick={() => handleMove(sub.id, list.id)}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors"
+                                >
+                                  {list.name}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => onRemove?.(sub.id)}
+                      className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
+                      title="Remove subscription"
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </button>
+                  </div>
                 </div>
               ))}
           </div>
 
           {subscriptions.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">No subscriptions yet</p>
+            <div className="text-center py-12">
+              <Rss className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-muted-foreground font-medium">
+                No subscriptions yet
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Add a channel to get started
               </p>
@@ -574,7 +587,7 @@ export function SubscriptionManager({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border p-4 flex justify-end gap-2">
+        <div className="border-t border-border p-4 flex justify-end">
           <Button onClick={onClose} variant="outline" size="sm">
             Close
           </Button>

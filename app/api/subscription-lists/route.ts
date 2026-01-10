@@ -1,17 +1,33 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   readLists,
   createList,
   updateList,
   deleteList,
 } from "@/lib/subscriptionListStore";
+import { getUserFromSession } from "@/lib/auth";
 
 export async function GET() {
-  const data = await readLists();
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const data = await readLists(user.id);
   return NextResponse.json(data);
 }
 
 export async function POST(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
   const { action, name, listId, updates } = body || {};
 
@@ -24,7 +40,7 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      const newList = await createList(name);
+      const newList = await createList(name, user.id);
       return NextResponse.json(newList);
     } else if (action === "update") {
       if (!listId) {
@@ -34,8 +50,8 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      await updateList(listId, updates);
-      const data = await readLists();
+      await updateList(listId, updates, user.id);
+      const data = await readLists(user.id);
       return NextResponse.json(data);
     } else if (action === "delete") {
       if (!listId) {
@@ -45,8 +61,8 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      await deleteList(listId);
-      const data = await readLists();
+      await deleteList(listId, user.id);
+      const data = await readLists(user.id);
       return NextResponse.json(data);
     } else {
       console.error(

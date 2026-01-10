@@ -21,9 +21,14 @@ import {
   Zap,
   RadioTower,
   Clock,
+  Shield,
+  User,
+  LogOut,
+  ChevronDown,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
+import { useAuth } from "@/hooks/useAuth";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
 import { VideoPlayer } from "@/components/VideoPlayer";
@@ -31,10 +36,14 @@ import { PlaybackHistory } from "@/components/PlaybackHistory";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WatchLater } from "@/components/WatchLater";
+import { AdminPanel } from "@/components/AdminPanel";
 import { LoadingProgress } from "@/components/LoadingProgress";
 import { WelcomeWizard, type WelcomeOptions } from "@/components/WelcomeWizard";
 import { ToastContainer } from "@/components/ToastContainer";
 import type { ToastProps } from "@/components/Toast";
+import AdminOIDC from "@/app/admin/oidc/page";
+import AdminUsers from "@/app/admin/users/page";
+import AdminSystem from "@/app/admin/system/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -46,6 +55,8 @@ import {
   exportSubscriptions,
   getSettings,
   updateSettings,
+  getUserState,
+  updateUserState,
   clearWatchHistory,
   resetAllSettings,
   Video,
@@ -67,6 +78,7 @@ export default function Home() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme } = useContext(ThemeContext);
+  const { user, logout } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("home");
   const componentId = useRef(Math.random().toString(36).substring(7));
@@ -88,6 +100,7 @@ export default function Home() {
   const [hideWatched, setHideWatched] = useState(false);
   const [hideMemberOnly, setHideMemberOnly] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
   const [subscriptionLists, setSubscriptionLists] = useState<
     SubscriptionList[]
   >([]);
@@ -123,8 +136,25 @@ export default function Home() {
   >(null);
   const videoRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const closingPlayerRef = useRef(false);
+  const settingsPreloadRef = useRef(false);
+
+  // Preload settings eagerly
+  const preloadSettings = useCallback(async () => {
+    if (settings || settingsPreloadRef.current) return;
+    settingsPreloadRef.current = true;
+    setSettingsLoading(true);
+    try {
+      const appSettings = await getSettings();
+      setSettings(appSettings);
+    } catch (err) {
+      console.error("Failed to preload settings:", err);
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [settings]);
   const [toasts, setToasts] = useState<Omit<ToastProps, "onClose">[]>([]);
 
   const showToast = (
@@ -143,6 +173,17 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Handle page query parameter (e.g., ?page=admin)
+  useEffect(() => {
+    const page = searchParams.get("page");
+    if (
+      page &&
+      ["admin", "settings", "watch-later", "watch-history"].includes(page)
+    ) {
+      setCurrentPage(page as Page);
+    }
+  }, [searchParams]);
 
   // Track current search params for use in handlers
   useEffect(() => {
@@ -208,11 +249,29 @@ export default function Home() {
       ) {
         setShowMoreMenu(false);
       }
+      // Close keyboard help dropdown
+      if (
+        showKeyboardHelp &&
+        ev.target instanceof Element &&
+        !ev.target.closest('[title="Keyboard shortcuts"]') &&
+        !ev.target.closest(".keyboard-help-menu")
+      ) {
+        setShowKeyboardHelp(false);
+      }
+      // Close user menu dropdown
+      if (
+        showUserMenu &&
+        ev.target instanceof Element &&
+        !ev.target.closest('[title="User profile"]') &&
+        !ev.target.closest(".user-menu")
+      ) {
+        setShowUserMenu(false);
+      }
     };
 
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
-  }, [showMoreMenu]);
+  }, [showMoreMenu, showKeyboardHelp, showUserMenu]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -556,8 +615,26 @@ export default function Home() {
         const appSettings = await getSettings();
         setSettings(appSettings);
 
+        // Load user state to check if welcome wizard is completed
+        let userState;
+        try {
+          userState = await getUserState();
+        } catch (e) {
+          // User not logged in yet - use default state
+          console.log("[Init] User not logged in, using default state");
+          userState = {
+            hasCompletedWelcome: false,
+            watchedVideos: [],
+            hideWatched: false,
+            hideMemberOnly: false,
+            filterListId: "all",
+          };
+        }
+
+        console.log("[Init] User state loaded:", userState.hasCompletedWelcome);
+
         // Check if this is first time user
-        if (!appSettings.hasCompletedWelcome) {
+        if (!userState.hasCompletedWelcome) {
           setShowWelcomeWizard(true);
           // Don't auto-initialize feed for first-time users
         } else {
@@ -625,6 +702,16 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("filterListId", JSON.stringify(filterListId));
   }, [filterListId]);
+
+  // Update loading progress visibility when welcome wizard visibility changes
+  // This ensures the loading bar hides/shows correctly based on welcome state
+  useEffect(() => {
+    if (!showWelcomeWizard && fetchingRef.current) {
+      setShowLoadingProgress(true);
+    } else if (showWelcomeWizard) {
+      setShowLoadingProgress(false);
+    }
+  }, [showWelcomeWizard]);
 
   // Handle Escape key to clear search
   useEffect(() => {
@@ -776,33 +863,6 @@ export default function Home() {
       setSettings(freshSettings);
     } catch (err) {
       console.error("Failed to reset settings:", err);
-    }
-  };
-
-  const handleResetAllData = async () => {
-    try {
-      // Clear all subscriptions
-      const res = await fetch("/api/subscription-lists/subscriptions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clear", listId: null }),
-      });
-      if (!res.ok) throw new Error("Failed to delete subscriptions");
-
-      // Clear watch history
-      await clearWatchHistory();
-      setWatchedVideos(new Set());
-
-      // Reset settings
-      await resetAllSettings();
-      const freshSettings = await getSettings();
-      setSettings(freshSettings);
-
-      // Refresh feed data
-      await refreshData();
-    } catch (err) {
-      console.error("Failed to reset application:", err);
-      throw err;
     }
   };
 
@@ -1036,13 +1096,17 @@ export default function Home() {
     setWelcomeCompleted(true);
 
     try {
-      // Apply wizard settings (including hasCompletedWelcome flag and fetchMethod)
-      const updates: Partial<typeof settings> = {
+      // Update user state to mark welcome as completed
+      const currentState = await getUserState();
+      await updateUserState({
+        ...currentState,
         hasCompletedWelcome: true,
-        fetchMethod: options.fetchMethod,
-      };
+      });
 
-      await updateSettings(updates);
+      // Apply wizard settings (fetchMethod)
+      await updateSettings({
+        fetchMethod: options.fetchMethod,
+      });
       const freshSettings = await getSettings();
       setSettings(freshSettings);
 
@@ -1059,9 +1123,14 @@ export default function Home() {
 
     try {
       // Mark as completed even if skipped
-      await updateSettings({ hasCompletedWelcome: true });
-      const freshSettings = await getSettings();
-      setSettings(freshSettings);
+      const currentState = await getUserState();
+      await updateUserState({
+        ...currentState,
+        hasCompletedWelcome: true,
+      });
+
+      // Initialize feedManager to start loading the feed
+      await feedManager.initialize();
     } catch (err) {
       console.error("Failed to mark welcome wizard as completed:", err);
     }
@@ -1186,7 +1255,7 @@ export default function Home() {
                   </svg>
                 </Button>
                 {showKeyboardHelp && (
-                  <div className="absolute right-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
+                  <div className="keyboard-help-menu absolute right-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
                     <h3 className="font-semibold mb-3 text-sm">
                       Keyboard Shortcuts
                     </h3>
@@ -1264,42 +1333,120 @@ export default function Home() {
                 </ClientOnly>
                 Manage
               </Button>
-              <Button
-                onClick={() => setCurrentPage("watch-later")}
-                variant="outline"
-                size="icon"
-                className="relative"
-                title="Watch later list"
-              >
-                <ClientOnly>
-                  <Bookmark className="w-5 h-5" />
-                </ClientOnly>
-                {watchLater.length > 0 && (
-                  <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                    {watchLater.length}
+              {/* User Profile Menu */}
+              <div className="relative">
+                <Button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  title="User profile"
+                >
+                  <ClientOnly>
+                    <User className="w-4 h-4" />
+                  </ClientOnly>
+                  <span className="hidden sm:inline">
+                    {user?.name || user?.email}
                   </span>
+                  <ClientOnly>
+                    <ChevronDown className="w-3 h-3" />
+                  </ClientOnly>
+                </Button>
+                {showUserMenu && (
+                  <div className="user-menu absolute right-0 mt-2 w-56 bg-card border border-border rounded-lg shadow-lg z-50">
+                    <div className="p-3 border-b border-border">
+                      <p className="font-medium text-sm">
+                        {user?.name || "User"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {user?.email}
+                      </p>
+                      <span
+                        className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          user?.isAdmin
+                            ? "bg-primary/10 text-primary border border-primary/20"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {user?.isAdmin ? "Administrator" : "User"}
+                      </span>
+                    </div>
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          preloadSettings();
+                          setCurrentPage("settings");
+                        }}
+                        onMouseEnter={preloadSettings}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
+                      >
+                        <ClientOnly>
+                          <Settings className="w-4 h-4" />
+                        </ClientOnly>
+                        Settings
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setCurrentPage("watch-later");
+                        }}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
+                      >
+                        <ClientOnly>
+                          <Bookmark className="w-4 h-4" />
+                        </ClientOnly>
+                        <span className="flex-1">Watch Later</span>
+                        {watchLater.length > 0 && (
+                          <span className="bg-primary text-primary-foreground text-xs font-bold rounded-full px-1.5 py-0.5 min-w-[20px] text-center">
+                            {watchLater.length}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setCurrentPage("watch-history");
+                        }}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
+                      >
+                        <ClientOnly>
+                          <Clock className="w-4 h-4" />
+                        </ClientOnly>
+                        Watch History
+                      </button>
+                      {user?.isAdmin ? (
+                        <button
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            setCurrentPage("admin");
+                          }}
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
+                        >
+                          <ClientOnly>
+                            <Shield className="w-4 h-4" />
+                          </ClientOnly>
+                          Admin Panel
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="border-t border-border">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          logout();
+                        }}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-destructive/10 transition-colors cursor-pointer flex items-center gap-2 text-destructive"
+                      >
+                        <ClientOnly>
+                          <LogOut className="w-4 h-4" />
+                        </ClientOnly>
+                        Logout
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </Button>
-              <Button
-                onClick={() => setShowPlaybackHistory(true)}
-                variant="ghost"
-                size="icon"
-                title="Playback history"
-              >
-                <ClientOnly>
-                  <Clock className="w-5 h-5" />
-                </ClientOnly>
-              </Button>
-              <Button
-                onClick={() => setShowSettings(true)}
-                variant="ghost"
-                size="icon"
-                title="Settings"
-              >
-                <ClientOnly>
-                  <Settings className="w-5 h-5" />
-                </ClientOnly>
-              </Button>
+              </div>
             </div>
           </div>
 
@@ -1382,12 +1529,8 @@ export default function Home() {
                   })()}{" "}
                   subscriptions
                 </span>
-                {settings?.enableVideos && (
-                  <>
-                    <span>•</span>
-                    <span>{filteredVideos.length} videos</span>
-                  </>
-                )}
+                <span>•</span>
+                <span>{filteredVideos.length} videos</span>
               </div>
               {error && (
                 <p className="text-sm text-destructive mt-2">{error}</p>
@@ -1607,7 +1750,7 @@ export default function Home() {
               </>
             )}
           </>
-        ) : (
+        ) : currentPage === "watch-later" ? (
           <>
             {/* Watch Later Page */}
             <div className="mb-8">
@@ -1640,7 +1783,146 @@ export default function Home() {
               />
             </div>
           </>
-        )}
+        ) : currentPage === "admin" ? (
+          <>
+            {/* Admin Panel Page */}
+            <div className="mb-8">
+              <button
+                onClick={() => setCurrentPage("home")}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
+              >
+                ← Back to Feed
+              </button>
+              <div className="flex items-center gap-3 mb-2">
+                <ClientOnly>
+                  <Shield className="w-7 h-7 text-primary" />
+                </ClientOnly>
+                <h2 className="text-2xl sm:text-3xl font-bold">Admin Panel</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Manage system settings and users
+              </p>
+            </div>
+
+            <AdminPanel
+              onNavigateToOIDC={() => setCurrentPage("admin-oidc")}
+              onNavigateToUsers={() => setCurrentPage("admin-users")}
+              onNavigateToSystem={() => setCurrentPage("admin-system")}
+            />
+          </>
+        ) : currentPage === "admin-oidc" ? (
+          <AdminOIDC onBack={() => setCurrentPage("admin")} />
+        ) : currentPage === "admin-users" ? (
+          <AdminUsers onBack={() => setCurrentPage("admin")} />
+        ) : currentPage === "admin-system" ? (
+          <AdminSystem onBack={() => setCurrentPage("admin")} />
+        ) : currentPage === "settings" ? (
+          <>
+            {/* Settings Page */}
+            <div className="mb-8">
+              <button
+                onClick={() => setCurrentPage("home")}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
+              >
+                ← Back to Feed
+              </button>
+              <div className="flex items-center gap-3 mb-2">
+                <ClientOnly>
+                  <Settings className="w-7 h-7 text-primary" />
+                </ClientOnly>
+                <h2 className="text-2xl sm:text-3xl font-bold">Settings</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Customize your experience
+              </p>
+            </div>
+
+            {settingsLoading && !settings ? (
+              <div className="max-w-2xl space-y-6">
+                {/* Settings loading skeleton */}
+                <div className="space-y-4">
+                  <div className="h-8 bg-muted rounded animate-pulse"></div>
+                  <div className="space-y-2">
+                    <div className="h-4 bg-muted rounded w-24 animate-pulse"></div>
+                    <div className="flex gap-2">
+                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
+                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-4 bg-muted rounded w-24 animate-pulse"></div>
+                    <div className="flex gap-2">
+                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
+                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : settings ? (
+              <div className="max-w-2xl">
+                <SettingsPanel
+                  settings={settings}
+                  onSave={async (newSettings) => {
+                    await handleSaveSettings(newSettings);
+                    setCurrentPage("home");
+                  }}
+                  onDeleteSubscriptions={handleDeleteAllSubscriptions}
+                  onClearWatchHistory={handleClearWatchHistory}
+                  onResetSettings={handleResetAllSettings}
+                  subscriptionLists={subscriptionLists}
+                  currentListId={currentListId}
+                  isOpen={true}
+                  onClose={() => setCurrentPage("home")}
+                />
+              </div>
+            ) : null}
+          </>
+        ) : currentPage === "watch-history" ? (
+          <>
+            {/* Watch History Page */}
+            <div className="mb-8">
+              <button
+                onClick={() => setCurrentPage("home")}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
+              >
+                ← Back to Feed
+              </button>
+              <div className="flex items-center gap-3 mb-2">
+                <ClientOnly>
+                  <Clock className="w-7 h-7 text-primary" />
+                </ClientOnly>
+                <h2 className="text-2xl sm:text-3xl font-bold">
+                  Watch History
+                </h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Your recently watched videos
+              </p>
+            </div>
+
+            <div className="max-w-2xl">
+              <PlaybackHistory
+                onClose={() => setCurrentPage("home")}
+                onPlayVideo={(videoId, progress) => {
+                  // Find the video and play it
+                  const video = videos.find((v) => v.id === videoId);
+                  if (video) {
+                    setInitialProgress(progress);
+                    handlePlayInPlayer(
+                      video.url,
+                      video.id,
+                      video.title,
+                      video.channel,
+                      video.channelId,
+                      video.thumbnail
+                    );
+                    setCurrentPage("home");
+                  }
+                }}
+              />
+            </div>
+          </>
+        ) : null}
       </main>
 
       {/* Subscription Manager Modal */}
@@ -1700,21 +1982,6 @@ export default function Home() {
         onClose={() => setShowSubscriptions(false)}
       />
 
-      {settings && (
-        <SettingsPanel
-          settings={settings}
-          onSave={handleSaveSettings}
-          onDeleteSubscriptions={handleDeleteAllSubscriptions}
-          onClearWatchHistory={handleClearWatchHistory}
-          onResetSettings={handleResetAllSettings}
-          onResetAllData={handleResetAllData}
-          subscriptionLists={subscriptionLists}
-          currentListId={currentListId}
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-
       {/* Video Player Modal */}
       {showPlayer && playerVideo && (
         <VideoPlayer
@@ -1740,29 +2007,6 @@ export default function Home() {
           onQualityChange={(q) => setPlayerQuality(q as typeof playerQuality)}
           onProgress={handlePlayerProgress}
           initialProgress={initialProgress}
-        />
-      )}
-
-      {/* Playback History Modal */}
-      {showPlaybackHistory && (
-        <PlaybackHistory
-          onClose={() => setShowPlaybackHistory(false)}
-          onPlayVideo={(videoId, progress) => {
-            // Find the video and play it
-            const video = videos.find((v) => v.id === videoId);
-            if (video) {
-              setInitialProgress(progress);
-              handlePlayInPlayer(
-                video.url,
-                video.id,
-                video.title,
-                video.channel,
-                video.channelId,
-                video.thumbnail
-              );
-              setShowPlaybackHistory(false);
-            }
-          }}
         />
       )}
 

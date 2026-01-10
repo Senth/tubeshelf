@@ -177,6 +177,7 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
     // Detect members-only videos via badges, explicit flags, or embedded text
     let isMemberOnly = false;
     try {
+      // Check explicit flags first (most reliable)
       if (
         renderer.isForMembers ||
         renderer.forMembershipsOnly ||
@@ -186,26 +187,65 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
         isMemberOnly = true;
       }
 
+      // Check badges (second most reliable)
       const badgeCandidates =
         renderer.badges || renderer.ownerBadges || renderer.badgeMeta || [];
       if (Array.isArray(badgeCandidates)) {
         for (const b of badgeCandidates) {
-          const text = (
-            b?.label ||
-            b?.metadata?.label ||
-            b?.badgeRenderer?.label ||
-            ""
-          )
-            .toString()
-            .toLowerCase();
-          if (text.includes("member") || text.includes("members")) {
+          // Check badge label text
+          const label =
+            b?.label || b?.metadata?.label || b?.badgeRenderer?.label || "";
+          const labelText = (
+            typeof label === "string"
+              ? label
+              : label?.simpleText || label?.runs?.[0]?.text || ""
+          ).toLowerCase();
+
+          // Only match if the badge specifically says "members" or "members only"
+          if (
+            labelText === "members" ||
+            labelText === "members only" ||
+            labelText === "members-only"
+          ) {
             isMemberOnly = true;
             break;
           }
-          const style = b?.badgeRenderer?.style || "";
+
+          // Check badge style
+          const style =
+            b?.badgeRenderer?.style || b?.metadataBadgeRenderer?.style || "";
           if (
             typeof style === "string" &&
-            style.toLowerCase().includes("member")
+            (style === "BADGE_STYLE_TYPE_MEMBERS_ONLY" ||
+              style.toLowerCase().includes("member"))
+          ) {
+            isMemberOnly = true;
+            break;
+          }
+
+          // Check badge icon type
+          const iconType =
+            b?.badgeRenderer?.icon?.iconType ||
+            b?.metadataBadgeRenderer?.icon?.iconType ||
+            "";
+          if (iconType === "SPONSORSHIPS" || iconType === "MEMBERS_ONLY") {
+            isMemberOnly = true;
+            break;
+          }
+        }
+      }
+
+      // Check for thumbnailOverlays which often contain membership indicators
+      const overlays = renderer.thumbnailOverlays || [];
+      if (Array.isArray(overlays)) {
+        for (const overlay of overlays) {
+          const text =
+            overlay?.thumbnailOverlayBadgeRenderer?.text?.simpleText ||
+            overlay?.thumbnailOverlayBadgeRenderer?.text?.runs?.[0]?.text ||
+            "";
+          if (
+            text.toLowerCase() === "members only" ||
+            text.toLowerCase() === "members"
           ) {
             isMemberOnly = true;
             break;
@@ -216,34 +256,7 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
       // ignore detection errors
     }
 
-    // Additional heuristic: search renderer fields for 'member' text
-    const containsMemberText = (val: any, depth = 0): boolean => {
-      if (depth > 6 || val == null) return false;
-      if (typeof val === "string")
-        return /members?[-\s]?only|for members|member(s)?/i.test(val);
-      if (typeof val === "number" || typeof val === "boolean") return false;
-      if (Array.isArray(val)) {
-        for (const el of val)
-          if (containsMemberText(el, depth + 1)) return true;
-        return false;
-      }
-      if (typeof val === "object") {
-        // iterate over more keys to catch nested metadata
-        const keys = Object.keys(val).slice(0, 100);
-        for (const k of keys) {
-          try {
-            if (containsMemberText(val[k], depth + 1)) return true;
-          } catch {}
-        }
-      }
-      return false;
-    };
-
-    try {
-      if (!isMemberOnly && containsMemberText(renderer)) {
-        isMemberOnly = true;
-      }
-    } catch {}
+    // Remove the broad text search heuristic - it causes too many false positives
 
     return {
       id: videoId,

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
+import { getUserFromSession } from "@/lib/auth";
 
 const CONCURRENCY = 4;
 
@@ -16,6 +18,50 @@ const CACHE_DURATION = 1000; // 1 second cache to prevent duplicate requests
 let pendingResolvers: Array<(result: any) => void> = [];
 
 export async function GET(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Wrap the entire handler with a 30 second timeout
+  try {
+    const result = await Promise.race([
+      handleFeedRequest(req, user),
+      new Promise<NextResponse>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Feed request timeout after 30s")),
+          30000
+        )
+      ),
+    ]);
+    return result;
+  } catch (error) {
+    console.error("[Feed] Request handler error:", error);
+    if (error instanceof Error && error.message.includes("timeout")) {
+      isFetching = false;
+      pendingResolvers.forEach((resolve) => resolve({ items: [] }));
+      pendingResolvers = [];
+      return NextResponse.json(
+        { error: "Feed fetch timeout - taking too long", items: [] },
+        { status: 504 }
+      );
+    }
+    isFetching = false;
+    pendingResolvers.forEach((resolve) => resolve({ items: [] }));
+    pendingResolvers = [];
+    return NextResponse.json(
+      { error: "Internal server error", items: [] },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleFeedRequest(
+  req: Request,
+  user: { id: string; email: string }
+): Promise<NextResponse> {
   try {
     const url = new URL(req.url);
     const idsParam = url.searchParams.get("ids");
@@ -74,7 +120,7 @@ export async function GET(req: Request) {
         .filter(Boolean);
     } else {
       // Get all unique channel IDs from all subscription lists with their metadata
-      const listsData = await readLists();
+      const listsData = await readLists(user.id);
       listsData.lists.forEach((list) => {
         list.subscriptions.forEach((sub) => {
           if (!subscriptionMetadata.has(sub.channelId)) {
@@ -101,7 +147,18 @@ export async function GET(req: Request) {
     }
 
     if (channelIds.length === 0) {
-      return NextResponse.json({ items: [] });
+      // Cache the empty result and notify any coalesced requests
+      const emptyResult = { items: [] };
+      cachedResult = emptyResult;
+      cachedSettings = settingsKey;
+      cacheTimestamp = Date.now();
+      
+      // Reset fetching state and notify pending resolvers
+      isFetching = false;
+      pendingResolvers.forEach((resolve) => resolve(emptyResult));
+      pendingResolvers = [];
+      
+      return NextResponse.json(emptyResult);
     }
 
     // Log the fetch priority order (top 5 channels)
@@ -148,11 +205,32 @@ export async function GET(req: Request) {
           let hasVideos = false;
           let latestUploadTime: string | undefined;
 
-          // Fetch regular videos
+          // Fetch regular videos with timeout
           console.log(
             `[Feed] Worker ${workerId} calling fetchChannelFeed for ${current}`
           );
-          const result = await fetchChannelFeed(current);
+          let result;
+          try {
+            // Fetch with 10 second timeout per channel
+            result = await Promise.race([
+              fetchChannelFeed(current),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error("Channel fetch timeout after 10s")),
+                  10000
+                )
+              ),
+            ]);
+          } catch (err) {
+            if (err instanceof Error && err.message.includes("timeout")) {
+              console.warn(
+                `[Feed] Worker ${workerId} timeout fetching ${current}, skipping`
+              );
+              result = { videos: [], meta: undefined };
+            } else {
+              throw err;
+            }
+          }
           meta = result.meta;
 
           // If the fetch returned no videos and no meta title, treat as unavailable
@@ -209,32 +287,16 @@ export async function GET(req: Request) {
 
     // Update lastUploadedAt for all channels that were processed
     console.log(
-      `[Feed] Updating lastUploadedAt for ${channelsWithVideos.size} channels`
+      `[Feed] Updating lastUploadedAt for ${channelsWithVideos.size} channels (background)`
     );
     if (channelsWithVideos.size > 0) {
-      try {
-        const listsData = await readLists();
-        let updatedCount = 0;
-        listsData.lists.forEach((list) => {
-          list.subscriptions.forEach((sub) => {
-            if (channelsWithVideos.has(sub.channelId)) {
-              const newTime = channelsWithVideos.get(sub.channelId);
-              sub.lastUploadedAt = newTime;
-              updatedCount++;
-              console.log(
-                `[Feed] Updated ${sub.title} (${sub.channelId}) to ${newTime}`
-              );
-            }
-          });
-        });
-        console.log(
-          `[Feed] Updated ${updatedCount} subscriptions with lastUploadedAt`
-        );
-        await writeLists(listsData);
-      } catch (err) {
-        console.error("[Feed] Failed to update subscription ranking:", err);
-        // Continue anyway - this is not critical
-      }
+      // Do this in the background to avoid blocking the response
+      updateChannelTimestampsAsync(channelsWithVideos, user.id).catch((err) =>
+        console.warn(
+          "[Feed] Failed to update channel timestamps in background:",
+          err
+        )
+      );
     }
 
     items.sort(
@@ -262,7 +324,7 @@ export async function GET(req: Request) {
     );
 
     // Fetch avatars and update subscriptions in the background (non-blocking)
-    fetchAvatarsAndUpdateAsync(channelIds).catch((err) =>
+    fetchAvatarsAndUpdateAsync(channelIds, user.id).catch((err) =>
       console.warn("[Feed] Background avatar fetch failed", {
         error: String(err),
       })
@@ -270,22 +332,48 @@ export async function GET(req: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[Feed] Unexpected error:", error);
+    console.error("[Feed] Unexpected error in handleFeedRequest:", error);
     isFetching = false;
     pendingResolvers.forEach((resolve) => resolve({ items: [] }));
     pendingResolvers = [];
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        items: [],
-      },
-      { status: 500 }
+    throw error; // Re-throw to be caught by the outer wrapper
+  }
+}
+
+// Background async function to update channel timestamps
+async function updateChannelTimestampsAsync(
+  channelsWithVideos: Map<string, string>,
+  userId: string
+) {
+  try {
+    const listsData = await readLists(userId);
+    let updatedCount = 0;
+    listsData.lists.forEach((list) => {
+      list.subscriptions.forEach((sub) => {
+        if (channelsWithVideos.has(sub.channelId)) {
+          const newTime = channelsWithVideos.get(sub.channelId);
+          sub.lastUploadedAt = newTime;
+          updatedCount++;
+          console.log(
+            `[Feed] Updated ${sub.title} (${sub.channelId}) to ${newTime}`
+          );
+        }
+      });
+    });
+    console.log(
+      `[Feed] Updated ${updatedCount} subscriptions with lastUploadedAt`
     );
+    await writeLists(listsData, userId);
+  } catch (err) {
+    console.error("[Feed] Failed to update subscription ranking:", err);
   }
 }
 
 // Background async function to fetch avatars and update subscriptions
-async function fetchAvatarsAndUpdateAsync(channelIds: string[]) {
+async function fetchAvatarsAndUpdateAsync(
+  channelIds: string[],
+  userId: string
+) {
   const avatars = new Map<string, string>();
 
   // Fetch all avatars in parallel with a short timeout each
@@ -305,7 +393,7 @@ async function fetchAvatarsAndUpdateAsync(channelIds: string[]) {
   // Update subscriptions with the fetched avatars
   if (avatars.size > 0) {
     try {
-      const listsData = await readLists();
+      const listsData = await readLists(userId);
       let updated = false;
       listsData.lists.forEach((list) => {
         list.subscriptions.forEach((sub) => {
@@ -317,7 +405,7 @@ async function fetchAvatarsAndUpdateAsync(channelIds: string[]) {
         });
       });
       if (updated) {
-        await writeLists(listsData);
+        await writeLists(listsData, userId);
       }
     } catch (err) {
       console.warn("[Feed] Failed to update subscriptions with avatars", {

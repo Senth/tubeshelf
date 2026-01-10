@@ -5,16 +5,16 @@ export interface AppSettings {
   defaultSortOrder: "newest" | "oldest";
   theme: "light" | "dark" | "system";
   videoPlayerMode: "built-in" | "new-tab";
-  hasCompletedWelcome: boolean;
   fetchMethod: "standard" | "rss";
+  oidcOnly: boolean;
 }
 
 export const defaultSettings: AppSettings = {
   defaultSortOrder: "newest",
   theme: "system",
   videoPlayerMode: "built-in",
-  hasCompletedWelcome: false,
   fetchMethod: "standard",
+  oidcOnly: false,
 };
 
 // Run migration on first import
@@ -67,8 +67,8 @@ export async function writeSettings(
     "defaultSortOrder",
     "theme",
     "videoPlayerMode",
-    "hasCompletedWelcome",
     "fetchMethod",
+    "oidcOnly",
   ];
 
   const stmt = db.prepare(

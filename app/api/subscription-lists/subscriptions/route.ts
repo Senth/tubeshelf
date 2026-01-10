@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   readLists,
   addSubscriptionToList,
@@ -8,8 +9,16 @@ import {
   moveSubscription,
 } from "@/lib/subscriptionListStore";
 import { fetchChannelFeed, resolveChannelId } from "@/lib/videoFetcher";
+import { getUserFromSession } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
   const { listId, input } = body || {};
 
@@ -51,8 +60,8 @@ export async function POST(req: Request) {
       addedAt: new Date().toISOString(),
     };
 
-    await addSubscriptionToList(listId, subscription);
-    const lists = await readLists();
+    await addSubscriptionToList(listId, subscription, user.id);
+    const lists = await readLists(user.id);
     const list = lists.lists.find((l) => l.id === listId);
     return NextResponse.json(list);
   } catch (err: any) {
@@ -70,6 +79,13 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
   const { action, channelId, listId } = body || {};
 
@@ -78,12 +94,12 @@ export async function DELETE(req: Request) {
     try {
       if (listId) {
         // Clear subscriptions from specific list
-        await clearListSubscriptions(listId);
+        await clearListSubscriptions(listId, user.id);
       } else {
         // Clear all subscriptions from all lists
-        await clearAllSubscriptions();
+        await clearAllSubscriptions(user.id);
       }
-      const lists = await readLists();
+      const lists = await readLists(user.id);
       return NextResponse.json(lists);
     } catch (err: any) {
       console.error("[API] Clear subscriptions failed", {
@@ -116,8 +132,8 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    await removeSubscriptionFromList(listIdParam, channelIdParam);
-    const lists = await readLists();
+    await removeSubscriptionFromList(listIdParam, channelIdParam, user.id);
+    const lists = await readLists(user.id);
     return NextResponse.json(lists);
   } catch (err: any) {
     console.error("[API] Remove subscription failed", {
@@ -134,6 +150,13 @@ export async function DELETE(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
   const { action, channelId, fromListId, toListId } = body || {};
 
@@ -151,8 +174,8 @@ export async function PATCH(req: Request) {
     }
 
     try {
-      await moveSubscription(fromListId, toListId, channelId);
-      const lists = await readLists();
+      await moveSubscription(fromListId, toListId, channelId, user.id);
+      const lists = await readLists(user.id);
       return NextResponse.json(lists);
     } catch (err: any) {
       console.error("[API] Move subscription failed", {

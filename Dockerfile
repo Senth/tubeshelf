@@ -26,14 +26,25 @@ WORKDIR /app
 # Update npm to latest version to fix glob vulnerability
 RUN npm install -g npm@latest
 
-# Install only dumb-init
-RUN apk add --no-cache dumb-init && \
+# Install dumb-init and su-exec for privilege dropping
+RUN apk add --no-cache dumb-init su-exec && \
     rm -rf /var/cache/apk/*
 
 # Copy only necessary built files from builder (standalone includes everything needed)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy lib folder (needed for CLI commands)
+COPY --from=builder /app/lib ./lib
+
+# Copy CLI and server scripts
+COPY server.js ./
+COPY entrypoint.sh ./
+
+# Make scripts executable
+RUN chmod +x ./server.js ./entrypoint.sh
 
 # Create required dirs and ensure non-root can write
 RUN mkdir -p /app/data /app/.next/cache && \
@@ -42,13 +53,10 @@ RUN mkdir -p /app/data /app/.next/cache && \
 # Expose port
 EXPOSE 3000
 
-# Run as non-root user
-USER 1000:1000
+# Use entrypoint script for proper signal handling and privilege dropping
+ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["dumb-init", "--"]
-
-# Start the application
+# Start the application with the server script
 CMD ["node", "server.js"]
 
 # Set the NODE_ENV environment variable to production

@@ -1,7 +1,15 @@
 /**
  * Page navigation type
  */
-export type Page = "home" | "watch-later";
+export type Page =
+  | "home"
+  | "watch-later"
+  | "admin"
+  | "admin-oidc"
+  | "admin-users"
+  | "admin-system"
+  | "settings"
+  | "watch-history";
 
 /**
  * Feed tab type

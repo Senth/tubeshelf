@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { XMLParser } from "fast-xml-parser";
 import { readLists, addSubscriptionToList } from "@/lib/subscriptionListStore";
+import { getUserFromSession } from "@/lib/auth";
 
 function collectOutlines(node: any, out: any[] = []) {
   if (!node) return out;
@@ -33,6 +35,13 @@ function extractChannelId(xmlUrl: string): string | null {
 }
 
 export async function POST(req: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  const user = getUserFromSession(sessionId);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const contentType = req.headers.get("content-type") || "";
   const body = await req.text().catch(() => "");
 
@@ -97,7 +106,7 @@ export async function POST(req: Request) {
     const url = new URL(req.url);
     const listId = url.searchParams.get("listId") || "default";
 
-    const listsData = await readLists();
+    const listsData = await readLists(user.id);
     const targetList = listsData.lists.find((l) => l.id === listId);
 
     if (!targetList) {
@@ -133,11 +142,11 @@ export async function POST(req: Request) {
         addedAt: new Date().toISOString(),
       };
 
-      await addSubscriptionToList(listId, subscription);
+      await addSubscriptionToList(listId, subscription, user.id);
       added++;
     }
 
-    const updatedList = await readLists();
+    const updatedList = await readLists(user.id);
     const finalList = updatedList.lists.find((l) => l.id === listId);
 
     return NextResponse.json({
