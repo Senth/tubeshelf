@@ -120,9 +120,9 @@ export function createOIDCProvider(data: {
     `INSERT INTO oidc_providers (
       id, name, issuer, base_url, discovery_url, domain, redirect_uri,
       client_id, client_secret, scopes, auto_provision,
-      group_claim_name, admin_group_value
+      group_claim_name, admin_group_value, enabled
     ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     data.id,
     data.name,
@@ -136,7 +136,8 @@ export function createOIDCProvider(data: {
     data.scopes || "openid profile email groups",
     data.autoProvision ? 1 : 0,
     data.groupClaimName || null,
-    data.adminGroupValue || null
+    data.adminGroupValue || null,
+    1 // Enable by default
   );
 
   return getOIDCProvider(data.id)!;

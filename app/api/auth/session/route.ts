@@ -19,6 +19,8 @@ export async function GET() {
         email: user.email,
         name: user.name,
         isAdmin: user.isAdmin,
+        authType: user.oidcProvider ? "oidc" : "local",
+        oidcProvider: user.oidcProvider,
       },
     });
   } catch (error) {

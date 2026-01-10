@@ -143,17 +143,6 @@ export default function AdminUsers({ onBack }: AdminUsersProps = {}) {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="mb-6">
-          <button
-            onClick={() =>
-              onBack ? onBack() : (window.location.href = "/?page=admin")
-            }
-            className="text-primary hover:underline inline-flex items-center gap-2 mb-4 cursor-pointer bg-transparent border-none"
-          >
-            ← Back to Admin Panel
-          </button>
-        </div>
-
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-4">User Management</h1>
@@ -200,26 +189,26 @@ export default function AdminUsers({ onBack }: AdminUsersProps = {}) {
               No users found
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="w-full overflow-x-hidden">
+              <table className="w-full table-auto">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       User
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="hidden sm:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Auth Method
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Role
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="hidden md:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Created
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="hidden lg:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Last Login
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -230,7 +219,7 @@ export default function AdminUsers({ onBack }: AdminUsersProps = {}) {
                       key={u.id}
                       className="hover:bg-muted/30 transition-colors"
                     >
-                      <td className="px-6 py-4">
+                      <td className="px-3 sm:px-6 py-4">
                         <div className="flex items-center gap-3">
                           <UserCircle className="h-8 w-8 text-muted-foreground" />
                           <div>
@@ -248,12 +237,12 @@ export default function AdminUsers({ onBack }: AdminUsersProps = {}) {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="hidden sm:table-cell px-3 sm:px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
                           {u.oidcProvider || "Local"}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 sm:px-6 py-4">
                         {u.isDefaultAdmin ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-500 border border-purple-500/20">
                             <Shield className="h-3 w-3" />
@@ -270,13 +259,13 @@ export default function AdminUsers({ onBack }: AdminUsersProps = {}) {
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
+                      <td className="hidden md:table-cell px-3 sm:px-6 py-4 text-sm text-muted-foreground">
                         {formatDate(u.createdAt)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
+                      <td className="hidden lg:table-cell px-3 sm:px-6 py-4 text-sm text-muted-foreground">
                         {formatDate(u.lastLoginAt)}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-3 sm:px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => toggleAdmin(u.id, u.isAdmin)}

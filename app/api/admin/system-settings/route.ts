@@ -11,6 +11,7 @@ export async function GET() {
 
     return NextResponse.json({
       oidcOnly: settings.oidcOnly || false,
+      publicRegistration: settings.publicRegistration || false,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "Authentication required") {
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
     await requireAdmin();
 
     const body = await req.json();
-    const { oidcOnly } = body;
+    const { oidcOnly, publicRegistration } = body;
 
     // Validation: if enabling OIDC-only mode, ensure OIDC is configured
     if (oidcOnly) {
@@ -57,7 +58,9 @@ export async function POST(req: Request) {
     const settings = await readSettings();
     const updatedSettings = {
       ...settings,
-      oidcOnly: oidcOnly || false,
+      // Only update if explicitly provided (not undefined)
+      ...(oidcOnly !== undefined && { oidcOnly }),
+      ...(publicRegistration !== undefined && { publicRegistration }),
     };
 
     await writeSettings(updatedSettings);
@@ -65,6 +68,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       oidcOnly: updatedSettings.oidcOnly,
+      publicRegistration: updatedSettings.publicRegistration,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "Authentication required") {

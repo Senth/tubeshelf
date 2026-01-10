@@ -19,12 +19,16 @@ import {
   X,
   RefreshCw,
   Zap,
-  RadioTower,
   Clock,
   Shield,
   User,
   LogOut,
   ChevronDown,
+  BarChart3,
+  Eye,
+  KeyRound,
+  Users,
+  AlertTriangle,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
@@ -35,15 +39,21 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { PlaybackHistory } from "@/components/PlaybackHistory";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { DangerZonePanel } from "@/components/DangerZonePanel";
+import { AccountSettings } from "@/components/AccountSettings";
 import { WatchLater } from "@/components/WatchLater";
 import { AdminPanel } from "@/components/AdminPanel";
+import { AdminOIDC } from "@/components/admin/AdminOIDC";
+import { AdminUsers } from "@/components/admin/AdminUsers";
+import { AdminSystem } from "@/components/admin/AdminSystem";
 import { LoadingProgress } from "@/components/LoadingProgress";
 import { WelcomeWizard, type WelcomeOptions } from "@/components/WelcomeWizard";
 import { ToastContainer } from "@/components/ToastContainer";
 import type { ToastProps } from "@/components/Toast";
-import AdminOIDC from "@/app/admin/oidc/page";
-import AdminUsers from "@/app/admin/users/page";
-import AdminSystem from "@/app/admin/system/page";
+import {
+  UnifiedDashboardLayout,
+  DashboardCard,
+} from "@/components/UnifiedDashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -78,9 +88,11 @@ export default function Home() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme } = useContext(ThemeContext);
-  const { user, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [currentDashboardSection, setCurrentDashboardSection] =
+    useState<string>("profile");
   const componentId = useRef(Math.random().toString(36).substring(7));
   const [feedTab, setFeedTab] = useState<FeedTab>("videos");
   const [videos, setVideos] = useState<Video[]>([]);
@@ -127,6 +139,7 @@ export default function Home() {
 
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
+  const initializingRef = useRef(false); // Prevent concurrent initialization
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +186,13 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Redirect to login if auth has finished loading and user is not authenticated
+  useEffect(() => {
+    if (!authLoading && !user && mounted) {
+      router.push("/login");
+    }
+  }, [authLoading, user, mounted, router]);
 
   // Handle page query parameter (e.g., ?page=admin)
   useEffect(() => {
@@ -434,7 +454,9 @@ export default function Home() {
 
     try {
       // Fetch lists first
-      const listsRes = await fetch("/api/subscription-lists");
+      const listsRes = await fetch("/api/subscription-lists", {
+        credentials: "include",
+      });
       const listsData = await listsRes.json();
       setSubscriptionLists(listsData.lists || []);
       setCurrentListId((prevId) => {
@@ -458,7 +480,7 @@ export default function Home() {
 
   const loadUserState = async () => {
     try {
-      const res = await fetch("/api/user-state");
+      const res = await fetch("/api/user-state", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setWatchedVideos(new Set(data.watchedVideos || []));
@@ -503,15 +525,13 @@ export default function Home() {
 
     // Optimistic update
     setFilterListId(newId);
-    localStorage.setItem("filterListId", JSON.stringify(newId));
 
-    // Background persist
+    // Background persist to database (no localStorage)
     try {
       await persistUserState({ filterListId: newId });
     } catch (e) {
       // Revert on error
       setFilterListId(previousValue);
-      localStorage.setItem("filterListId", JSON.stringify(previousValue));
       showToast("Failed to save filter list", "error");
     }
   };
@@ -581,6 +601,18 @@ export default function Home() {
 
   // Initialize data on mount using singleton feed manager
   useEffect(() => {
+    // Skip initialization while auth is still loading
+    if (authLoading) {
+      console.log("[Init] Auth still loading, waiting...");
+      return;
+    }
+
+    // If user is not authenticated, don't initialize app data
+    if (!user) {
+      console.log("[Init] No authenticated user, waiting for login");
+      return;
+    }
+
     // Subscribe to feed manager (skip auto-init, we'll initialize manually based on welcome state)
     const unsubscribe = feedManager.subscribe(
       (feedData) => {
@@ -611,40 +643,49 @@ export default function Home() {
 
     // Load other settings
     const init = async () => {
+      // Prevent concurrent initialization attempts
+      if (initializingRef.current) {
+        console.log("[Init] Initialization already in progress, skipping");
+        return;
+      }
+      initializingRef.current = true;
+
       try {
         const appSettings = await getSettings();
         setSettings(appSettings);
 
-        // Load user state to check if welcome wizard is completed
-        let userState;
-        try {
-          userState = await getUserState();
-        } catch (e) {
-          // User not logged in yet - use default state
-          console.log("[Init] User not logged in, using default state");
-          userState = {
-            hasCompletedWelcome: false,
-            watchedVideos: [],
-            hideWatched: false,
-            hideMemberOnly: false,
-            filterListId: "all",
-          };
-        }
+        // Check if welcome wizard has been completed
+        // This uses a simple localStorage flag that persists across page reloads and browser restarts
+        const welcomeCompleted = localStorage.getItem(
+          "welcome_wizard_completed"
+        );
+        const isFirstVisit = !welcomeCompleted;
 
-        console.log("[Init] User state loaded:", userState.hasCompletedWelcome);
+        console.log(
+          "[Init] Welcome wizard status: isFirstVisit=",
+          isFirstVisit,
+          "flag=",
+          welcomeCompleted
+        );
 
-        // Check if this is first time user
-        if (!userState.hasCompletedWelcome) {
+        // Show welcome wizard only if it hasn't been completed
+        if (isFirstVisit) {
+          console.log("[Init] Showing welcome wizard");
           setShowWelcomeWizard(true);
           // Don't auto-initialize feed for first-time users
         } else {
+          console.log(
+            "[Init] Welcome wizard already completed, initializing feed"
+          );
           // For returning users, initialize feed immediately
           feedManager.initialize();
         }
 
         // Load subscription lists
         try {
-          const listsRes = await fetch("/api/subscription-lists");
+          const listsRes = await fetch("/api/subscription-lists", {
+            credentials: "include",
+          });
           if (listsRes.ok) {
             const listsData = await listsRes.json();
             setSubscriptionLists(listsData.lists || []);
@@ -653,32 +694,12 @@ export default function Home() {
           console.error("Failed to load subscription lists:", e);
         }
 
-        // Load hideWatched preference from localStorage
-        const savedHideWatched = localStorage.getItem("hideWatched");
-        if (savedHideWatched !== null) {
-          setHideWatched(JSON.parse(savedHideWatched));
-        }
-
-        // Load hideMemberOnly preference from localStorage
-        const savedHideMemberOnly = localStorage.getItem("hideMemberOnly");
-        if (savedHideMemberOnly !== null) {
-          setHideMemberOnly(JSON.parse(savedHideMemberOnly));
-        }
-
-        // Load filterListId preference from localStorage
-        const savedFilterListId = localStorage.getItem("filterListId");
-        if (savedFilterListId !== null) {
-          try {
-            const parsed = JSON.parse(savedFilterListId);
-            if (typeof parsed === "string") {
-              setFilterListId((prev) => (prev ? prev : parsed));
-            }
-          } catch {}
-        }
-
+        // Load user state from database
         await loadUserState();
       } catch (e) {
         console.error("Failed to load settings:", e);
+      } finally {
+        initializingRef.current = false;
       }
     };
 
@@ -686,22 +707,25 @@ export default function Home() {
 
     // Don't cleanup subscription - let it persist across remounts
     // Only cleanup on actual page navigation
-  }, []);
+  }, [authLoading, user]);
 
-  // Save hideWatched preference to localStorage
+  // Persist hideWatched to database
   useEffect(() => {
-    localStorage.setItem("hideWatched", JSON.stringify(hideWatched));
-  }, [hideWatched]);
+    if (!user) return; // Don't persist before user is authenticated
+    persistUserState({ hideWatched });
+  }, [hideWatched, user]);
 
-  // Save hideMemberOnly preference to localStorage
+  // Persist hideMemberOnly to database
   useEffect(() => {
-    localStorage.setItem("hideMemberOnly", JSON.stringify(hideMemberOnly));
-  }, [hideMemberOnly]);
+    if (!user) return; // Don't persist before user is authenticated
+    persistUserState({ hideMemberOnly });
+  }, [hideMemberOnly, user]);
 
-  // Persist filterListId to localStorage
+  // Persist filterListId to database
   useEffect(() => {
-    localStorage.setItem("filterListId", JSON.stringify(filterListId));
-  }, [filterListId]);
+    if (!user) return; // Don't persist before user is authenticated
+    persistUserState({ filterListId });
+  }, [filterListId, user]);
 
   // Update loading progress visibility when welcome wizard visibility changes
   // This ensures the loading bar hides/shows correctly based on welcome state
@@ -777,6 +801,7 @@ export default function Home() {
     const res = await fetch("/api/user-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(newState),
     });
 
@@ -802,7 +827,9 @@ export default function Home() {
     // Re-fetch lists after feed generation completes to pick up enriched thumbnails
     setTimeout(async () => {
       try {
-        const listsRes = await fetch("/api/subscription-lists");
+        const listsRes = await fetch("/api/subscription-lists", {
+          credentials: "include",
+        });
         if (listsRes.ok) {
           const listsData = await listsRes.json();
           setSubscriptionLists(listsData.lists || []);
@@ -845,6 +872,7 @@ export default function Home() {
     const res = await fetch("/api/subscription-lists/subscriptions", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ action: "clear", listId: listId || null }),
     });
     if (!res.ok) throw new Error("Failed to delete subscriptions");
@@ -866,6 +894,16 @@ export default function Home() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    const res = await fetch("/api/danger/delete-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to delete account");
+    // Note: User will be redirected in the component after showing the toast
+  };
+
   const handleRemoveSubscription = async (id: string) => {
     try {
       await removeSubscription(id, currentListId);
@@ -883,6 +921,7 @@ export default function Home() {
       const res = await fetch("/api/subscription-lists/subscriptions", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           action: "move",
           channelId: subscriptionId,
@@ -971,10 +1010,12 @@ export default function Home() {
   const handlePlayerProgress = (progress: number, duration: number) => {
     if (!playerVideo) return;
 
-    // Save progress to playback history
+    // Always save playback progress (no minimum threshold)
+    // This will be reported every 5 seconds by the player
     fetch("/api/playback-history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         videoId: playerVideo.videoId,
         videoTitle: playerVideo.title,
@@ -1092,47 +1133,69 @@ export default function Home() {
   };
 
   const handleWelcomeWizardComplete = async (options: WelcomeOptions) => {
-    setShowWelcomeWizard(false);
-    setWelcomeCompleted(true);
+    console.log("[WelcomeComplete] User completed wizard");
 
     try {
-      // Update user state to mark welcome as completed
-      const currentState = await getUserState();
-      await updateUserState({
-        ...currentState,
-        hasCompletedWelcome: true,
-      });
+      // Mark welcome as completed - use localStorage as single source of truth
+      // This persists across page reloads and browser restarts
+      localStorage.setItem("welcome_wizard_completed", "true");
+      console.log("[WelcomeComplete] Set welcome_wizard_completed flag");
+
+      // Hide wizard immediately after setting the flag
+      setShowWelcomeWizard(false);
+      setWelcomeCompleted(true);
 
       // Apply wizard settings (fetchMethod)
-      await updateSettings({
-        fetchMethod: options.fetchMethod,
-      });
-      const freshSettings = await getSettings();
-      setSettings(freshSettings);
+      try {
+        await updateSettings({
+          fetchMethod: options.fetchMethod,
+        });
+        const freshSettings = await getSettings();
+        setSettings(freshSettings);
+      } catch (err) {
+        console.error("Failed to update settings:", err);
+        // Non-critical error, continue
+      }
 
-      // Initialize feedManager (will fetch if there are subscriptions, otherwise return empty)
-      await feedManager.initialize();
+      // Initialize feedManager to start loading the feed
+      try {
+        await feedManager.initialize();
+      } catch (err) {
+        console.error("Failed to initialize feed:", err);
+        // Non-critical error, continue
+      }
     } catch (err) {
-      console.error("Failed to apply welcome wizard settings:", err);
+      console.error("Failed to complete welcome wizard:", err);
+      // Show wizard again if something critical failed
+      setShowWelcomeWizard(true);
+      setWelcomeCompleted(false);
     }
   };
 
   const handleWelcomeWizardSkip = async () => {
-    setShowWelcomeWizard(false);
-    setWelcomeCompleted(true);
+    console.log("[WelcomeSkip] User skipped wizard");
 
     try {
-      // Mark as completed even if skipped
-      const currentState = await getUserState();
-      await updateUserState({
-        ...currentState,
-        hasCompletedWelcome: true,
-      });
+      // Mark welcome as completed - use localStorage as single source of truth
+      localStorage.setItem("welcome_wizard_completed", "true");
+      console.log("[WelcomeSkip] Set welcome_wizard_completed flag");
+
+      // Hide wizard immediately
+      setShowWelcomeWizard(false);
+      setWelcomeCompleted(true);
 
       // Initialize feedManager to start loading the feed
-      await feedManager.initialize();
+      try {
+        await feedManager.initialize();
+      } catch (err) {
+        console.error("Failed to initialize feed:", err);
+        // Non-critical error, continue
+      }
     } catch (err) {
-      console.error("Failed to mark welcome wizard as completed:", err);
+      console.error("Failed to skip welcome wizard:", err);
+      // Show wizard again if something critical failed
+      setShowWelcomeWizard(true);
+      setWelcomeCompleted(false);
     }
   };
 
@@ -1146,7 +1209,9 @@ export default function Home() {
       );
 
       // Reload subscription lists to update the counter
-      const listsRes = await fetch("/api/subscription-lists");
+      const listsRes = await fetch("/api/subscription-lists", {
+        credentials: "include",
+      });
       if (listsRes.ok) {
         const listsData = await listsRes.json();
         setSubscriptionLists(listsData.lists || []);
@@ -1255,67 +1320,40 @@ export default function Home() {
                   </svg>
                 </Button>
                 {showKeyboardHelp && (
-                  <div className="keyboard-help-menu absolute right-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
-                    <h3 className="font-semibold mb-3 text-sm">
-                      Keyboard Shortcuts
-                    </h3>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Focus search
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          /
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Next video
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          J
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Previous video
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          K
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Open video
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          Enter
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Toggle watched
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          W
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Watch later
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          L
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Clear / Close
-                        </span>
-                        <kbd className="px-2 py-1 bg-secondary rounded border border-border font-mono">
-                          Esc
-                        </kbd>
-                      </div>
+                  <div className="keyboard-help-menu absolute right-0 mt-2 w-80 bg-card border border-border/50 rounded-lg shadow-xl backdrop-blur-sm z-50 overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-primary/5 to-transparent border-b border-border/30 px-4 py-3">
+                      <h3 className="font-semibold text-sm text-foreground">
+                        Keyboard Shortcuts
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Quick navigation and controls
+                      </p>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-3 space-y-1">
+                      {[
+                        { action: "Focus search", key: "/" },
+                        { action: "Next video", key: "J" },
+                        { action: "Previous video", key: "K" },
+                        { action: "Open video", key: "Enter" },
+                        { action: "Toggle watched", key: "W" },
+                        { action: "Watch later", key: "L" },
+                        { action: "Close menu", key: "Esc" },
+                      ].map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="flex justify-between items-center px-3 py-2 rounded-md hover:bg-primary/5 transition-colors group"
+                        >
+                          <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                            {item.action}
+                          </span>
+                          <kbd className="px-2 py-1 bg-secondary/60 hover:bg-secondary border border-border/50 rounded text-xs font-mono font-medium transition-colors">
+                            {item.key}
+                          </kbd>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1353,95 +1391,60 @@ export default function Home() {
                   </ClientOnly>
                 </Button>
                 {showUserMenu && (
-                  <div className="user-menu absolute right-0 mt-2 w-56 bg-card border border-border rounded-lg shadow-lg z-50">
-                    <div className="p-3 border-b border-border">
-                      <p className="font-medium text-sm">
+                  <div className="user-menu absolute right-0 mt-2 w-64 bg-card border border-border/50 rounded-lg shadow-xl backdrop-blur-sm z-50 overflow-hidden">
+                    {/* User Info Header */}
+                    <div className="bg-gradient-to-r from-primary/5 to-transparent border-b border-border/30 px-4 py-3">
+                      <p className="font-semibold text-sm text-foreground">
                         {user?.name || "User"}
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {user?.email}
                       </p>
-                      <span
-                        className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-medium ${
-                          user?.isAdmin
-                            ? "bg-primary/10 text-primary border border-primary/20"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {user?.isAdmin ? "Administrator" : "User"}
-                      </span>
+                      <div className="mt-2">
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                            user?.isAdmin
+                              ? "bg-primary/15 text-primary border border-primary/20"
+                              : "bg-secondary/60 text-muted-foreground border border-border/30"
+                          }`}
+                        >
+                          {user?.isAdmin ? "Administrator" : "User"}
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Menu Items */}
                     <div className="py-1">
                       <button
                         onClick={() => {
                           setShowUserMenu(false);
                           preloadSettings();
-                          setCurrentPage("settings");
+                          setCurrentPage("dashboard");
+                          setCurrentDashboardSection("profile");
                         }}
                         onMouseEnter={preloadSettings}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-primary/5 transition-colors cursor-pointer flex items-center gap-3 text-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"
                       >
                         <ClientOnly>
-                          <Settings className="w-4 h-4" />
+                          <Settings className="w-4 h-4 flex-shrink-0" />
                         </ClientOnly>
-                        Settings
+                        <span>Settings</span>
                       </button>
-                      <button
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          setCurrentPage("watch-later");
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
-                      >
-                        <ClientOnly>
-                          <Bookmark className="w-4 h-4" />
-                        </ClientOnly>
-                        <span className="flex-1">Watch Later</span>
-                        {watchLater.length > 0 && (
-                          <span className="bg-primary text-primary-foreground text-xs font-bold rounded-full px-1.5 py-0.5 min-w-[20px] text-center">
-                            {watchLater.length}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          setCurrentPage("watch-history");
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
-                      >
-                        <ClientOnly>
-                          <Clock className="w-4 h-4" />
-                        </ClientOnly>
-                        Watch History
-                      </button>
-                      {user?.isAdmin ? (
-                        <button
-                          onClick={() => {
-                            setShowUserMenu(false);
-                            setCurrentPage("admin");
-                          }}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors cursor-pointer flex items-center gap-2"
-                        >
-                          <ClientOnly>
-                            <Shield className="w-4 h-4" />
-                          </ClientOnly>
-                          Admin Panel
-                        </button>
-                      ) : null}
                     </div>
-                    <div className="border-t border-border">
+
+                    {/* Logout Button */}
+                    <div className="border-t border-border/30">
                       <button
                         onClick={() => {
                           setShowUserMenu(false);
                           logout();
                         }}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-destructive/10 transition-colors cursor-pointer flex items-center gap-2 text-destructive"
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-destructive/10 text-destructive transition-colors cursor-pointer flex items-center gap-3 focus:outline-none focus:ring-2 focus:ring-destructive/50 focus:ring-inset"
                       >
                         <ClientOnly>
-                          <LogOut className="w-4 h-4" />
+                          <LogOut className="w-4 h-4 flex-shrink-0" />
                         </ClientOnly>
-                        Logout
+                        <span>Logout</span>
                       </button>
                     </div>
                   </div>
@@ -1562,7 +1565,7 @@ export default function Home() {
                   <div className="flex gap-1">
                     <button
                       onClick={() => setFeedTab("videos")}
-                      className={`px-4 py-3 font-medium transition-all duration-200 relative ${
+                      className={`px-4 py-3 font-medium transition-all duration-200 relative flex items-center gap-2 ${
                         feedTab === "videos"
                           ? "text-foreground"
                           : "text-muted-foreground hover:text-foreground"
@@ -1572,92 +1575,152 @@ export default function Home() {
                           : "after:bg-transparent"
                       } hover:after:bg-primary/50`}
                     >
+                      <ClientOnly>
+                        <Play className="w-4 h-4" />
+                      </ClientOnly>
                       Videos
                     </button>
-                    {/* Tabs simplified — only Videos available */}
+                    <button
+                      onClick={() => setFeedTab("watch-later")}
+                      className={`px-4 py-3 font-medium transition-all duration-200 relative flex items-center gap-2 ${
+                        feedTab === "watch-later"
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                        feedTab === "watch-later"
+                          ? "after:bg-primary"
+                          : "after:bg-transparent"
+                      } hover:after:bg-primary/50`}
+                    >
+                      <ClientOnly>
+                        <Bookmark className="w-4 h-4" />
+                      </ClientOnly>
+                      Watch Later
+                      {watchLater.length > 0 && (
+                        <span className="bg-primary text-primary-foreground text-xs font-bold rounded-full px-1.5 min-w-[20px] text-center">
+                          {watchLater.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setFeedTab("watch-history")}
+                      className={`px-4 py-3 font-medium transition-all duration-200 relative flex items-center gap-2 ${
+                        feedTab === "watch-history"
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      } after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 ${
+                        feedTab === "watch-history"
+                          ? "after:bg-primary"
+                          : "after:bg-transparent"
+                      } hover:after:bg-primary/50`}
+                    >
+                      <ClientOnly>
+                        <Clock className="w-4 h-4" />
+                      </ClientOnly>
+                      Watch History
+                    </button>
                   </div>
                   <div className="flex items-center gap-3 pb-2">
-                    {/* Ad-hoc three-dot menu for extra controls (contains Hide watched + member toggle) */}
-                    <div className="relative" ref={moreMenuRef}>
-                      <button
-                        onClick={() => setShowMoreMenu((s) => !s)}
-                        aria-label="More"
-                        title="More"
-                        className="p-1.5 rounded-md hover:bg-accent/20 text-muted-foreground"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          className="w-4 h-4"
+                    {/* Filter menu - only show on home page videos tab */}
+                    {currentPage === "home" && feedTab === "videos" && (
+                      <div className="relative" ref={moreMenuRef}>
+                        <button
+                          onClick={() => setShowMoreMenu((s) => !s)}
+                          aria-label="More options"
+                          title="Filter options"
+                          className={`p-2 rounded-md transition-all duration-150 ${
+                            showMoreMenu
+                              ? "bg-primary/10 text-primary hover:bg-primary/20"
+                              : "text-muted-foreground hover:text-foreground hover:bg-primary/5"
+                          } focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-0`}
                         >
-                          <circle cx="12" cy="5" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="12" cy="19" r="2" />
-                        </svg>
-                      </button>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            className="w-4 h-4"
+                          >
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                          </svg>
+                        </button>
 
-                      {showMoreMenu && (
-                        <div className="absolute right-0 mt-2 w-64 bg-card border border-border/50 rounded shadow-lg p-2 z-50">
-                          <div className="flex flex-col gap-2">
-                            <label className="flex items-center justify-between gap-3 px-2 py-2 hover:bg-muted/5 rounded">
-                              <div className="text-sm text-foreground">
-                                Hide watched
-                              </div>
-                              <Switch
-                                checked={hideWatched}
-                                onCheckedChange={(checked) => {
-                                  const previousValue = hideWatched;
-                                  // Optimistic update
-                                  setHideWatched(checked);
-                                  // Background persist
-                                  persistUserState({
-                                    hideWatched: checked,
-                                  }).catch(() => {
-                                    // Revert on error
-                                    setHideWatched(previousValue);
-                                    showToast(
-                                      "Failed to save setting",
-                                      "error"
-                                    );
-                                  });
-                                }}
-                              />
-                            </label>
+                        {showMoreMenu && (
+                          <div className="absolute right-0 mt-2 w-72 bg-card border border-border/50 rounded-lg shadow-xl backdrop-blur-sm p-0 z-50 overflow-hidden">
+                            {/* Header */}
+                            <div className="bg-gradient-to-r from-primary/5 to-transparent border-b border-border/30 px-4 py-3">
+                              <h3 className="font-semibold text-sm text-foreground">
+                                Filter Options
+                              </h3>
+                            </div>
 
-                            <label className="flex items-center justify-between gap-3 px-2 py-2 hover:bg-muted/5 rounded">
-                              <div className="text-sm text-foreground">
-                                Hide member videos
-                              </div>
-                              <Switch
-                                checked={hideMemberOnly}
-                                onCheckedChange={toggleHideMemberOnlyPersist}
-                              />
-                            </label>
+                            {/* Items */}
+                            <div className="p-3 space-y-2">
+                              <label className="flex items-center justify-between px-3 py-2.5 rounded-md hover:bg-primary/5 transition-all cursor-pointer group">
+                                <div className="text-sm font-medium text-foreground">
+                                  Hide watched videos
+                                </div>
+                                <div className="flex-shrink-0 ml-3">
+                                  <Switch
+                                    checked={hideWatched}
+                                    onCheckedChange={(checked) => {
+                                      const previousValue = hideWatched;
+                                      setHideWatched(checked);
+                                      persistUserState({
+                                        hideWatched: checked,
+                                      }).catch(() => {
+                                        setHideWatched(previousValue);
+                                        showToast(
+                                          "Failed to save setting",
+                                          "error"
+                                        );
+                                      });
+                                    }}
+                                  />
+                                </div>
+                              </label>
+
+                              <label className="flex items-center justify-between px-3 py-2.5 rounded-md hover:bg-primary/5 transition-all cursor-pointer group">
+                                <div className="text-sm font-medium text-foreground">
+                                  Hide member-only videos
+                                </div>
+                                <div className="flex-shrink-0 ml-3">
+                                  <Switch
+                                    checked={hideMemberOnly}
+                                    onCheckedChange={
+                                      toggleHideMemberOnlyPersist
+                                    }
+                                  />
+                                </div>
+                              </label>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* List Filter */}
-                    <select
-                      value={filterListId}
-                      onChange={(e) => handleChangeFilterList(e.target.value)}
-                      className="px-3 py-1.5 text-sm bg-secondary border border-border/50 rounded-lg cursor-pointer hover:border-border transition-all duration-200 focus:border-primary focus:outline-none"
-                    >
-                      <option value="all">All Lists</option>
-                      {subscriptionLists
-                        .sort((a, b) =>
-                          a.id === "default" ? -1 : b.id === "default" ? 1 : 0
-                        )
-                        .map((list) => (
-                          <option key={list.id} value={list.id}>
-                            {list.name}
-                          </option>
-                        ))}
-                    </select>
+                    {feedTab === "videos" && (
+                      <select
+                        value={filterListId}
+                        onChange={(e) => handleChangeFilterList(e.target.value)}
+                        className="px-3 py-1.5 text-sm bg-secondary border border-border/50 rounded-lg cursor-pointer hover:border-border transition-all duration-200 focus:border-primary focus:outline-none"
+                      >
+                        <option value="all">All Lists</option>
+                        {subscriptionLists
+                          .sort((a, b) =>
+                            a.id === "default" ? -1 : b.id === "default" ? 1 : 0
+                          )
+                          .map((list) => (
+                            <option key={list.id} value={list.id}>
+                              {list.name}
+                            </option>
+                          ))}
+                      </select>
+                    )}
                   </div>
                 </div>
 
@@ -1746,6 +1809,26 @@ export default function Home() {
                   </>
                 )}
 
+                {/* Watch Later Tab */}
+                {feedTab === "watch-later" && (
+                  <WatchLater
+                    items={watchLater}
+                    watchedVideos={watchedVideos}
+                    onRemove={handleRemoveFromWatchLater}
+                    onPlay={handleWatchVideo}
+                    onToggleWatched={handleToggleWatched}
+                    onShare={(videoId) => {
+                      const url = `https://www.youtube.com/watch?v=${videoId}`;
+                      navigator.clipboard.writeText(url).catch(() => {});
+                    }}
+                  />
+                )}
+
+                {/* Watch History Tab */}
+                {feedTab === "watch-history" && (
+                  <PlaybackHistory onClose={() => setCurrentPage("home")} />
+                )}
+
                 {/* UI simplified — only Videos tab content shown */}
               </>
             )}
@@ -1783,144 +1866,102 @@ export default function Home() {
               />
             </div>
           </>
-        ) : currentPage === "admin" ? (
+        ) : currentPage === "dashboard" ? (
           <>
-            {/* Admin Panel Page */}
-            <div className="mb-8">
-              <button
-                onClick={() => setCurrentPage("home")}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
-              >
-                ← Back to Feed
-              </button>
-              <div className="flex items-center gap-3 mb-2">
-                <ClientOnly>
-                  <Shield className="w-7 h-7 text-primary" />
-                </ClientOnly>
-                <h2 className="text-2xl sm:text-3xl font-bold">Admin Panel</h2>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Manage system settings and users
-              </p>
-            </div>
+            {/* Unified Dashboard */}
+            <UnifiedDashboardLayout
+              currentSection={currentDashboardSection}
+              onSectionChange={setCurrentDashboardSection}
+              sections={[
+                {
+                  id: "profile",
+                  label: "Profile Settings",
+                  icon: <User className="w-4 h-4" />,
+                  description: "Manage your account and preferences",
+                  category: "profile",
+                },
+                {
+                  id: "preferences",
+                  label: "Preferences",
+                  icon: <Settings className="w-4 h-4" />,
+                  description: "Customize your experience",
+                  category: "preferences",
+                },
+                ...(user?.isAdmin
+                  ? [
+                      {
+                        id: "admin-oidc",
+                        label: "OIDC Provider",
+                        icon: <KeyRound className="w-4 h-4" />,
+                        description: "Configure authentication",
+                        category: "admin" as const,
+                      },
+                      {
+                        id: "admin-users",
+                        label: "User Management",
+                        icon: <Users className="w-4 h-4" />,
+                        description: "Manage users and permissions",
+                        category: "admin" as const,
+                      },
+                      {
+                        id: "admin-system",
+                        label: "System Settings",
+                        icon: <Settings className="w-4 h-4" />,
+                        description: "System configuration",
+                        category: "admin" as const,
+                      },
+                    ]
+                  : []),
+                {
+                  id: "danger-zone",
+                  label: "Danger Zone",
+                  icon: <AlertTriangle className="w-4 h-4" />,
+                  description: "Dangerous operations",
+                  category: "preferences",
+                },
+              ]}
+            >
+              {currentDashboardSection === "profile" && <AccountSettings />}
 
-            <AdminPanel
-              onNavigateToOIDC={() => setCurrentPage("admin-oidc")}
-              onNavigateToUsers={() => setCurrentPage("admin-users")}
-              onNavigateToSystem={() => setCurrentPage("admin-system")}
-            />
-          </>
-        ) : currentPage === "admin-oidc" ? (
-          <AdminOIDC onBack={() => setCurrentPage("admin")} />
-        ) : currentPage === "admin-users" ? (
-          <AdminUsers onBack={() => setCurrentPage("admin")} />
-        ) : currentPage === "admin-system" ? (
-          <AdminSystem onBack={() => setCurrentPage("admin")} />
-        ) : currentPage === "settings" ? (
-          <>
-            {/* Settings Page */}
-            <div className="mb-8">
-              <button
-                onClick={() => setCurrentPage("home")}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
-              >
-                ← Back to Feed
-              </button>
-              <div className="flex items-center gap-3 mb-2">
-                <ClientOnly>
-                  <Settings className="w-7 h-7 text-primary" />
-                </ClientOnly>
-                <h2 className="text-2xl sm:text-3xl font-bold">Settings</h2>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Customize your experience
-              </p>
-            </div>
-
-            {settingsLoading && !settings ? (
-              <div className="max-w-2xl space-y-6">
-                {/* Settings loading skeleton */}
-                <div className="space-y-4">
-                  <div className="h-8 bg-muted rounded animate-pulse"></div>
-                  <div className="space-y-2">
-                    <div className="h-4 bg-muted rounded w-24 animate-pulse"></div>
-                    <div className="flex gap-2">
-                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
-                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-4 bg-muted rounded w-24 animate-pulse"></div>
-                    <div className="flex gap-2">
-                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
-                      <div className="h-10 bg-muted rounded flex-1 animate-pulse"></div>
-                    </div>
-                  </div>
+              {currentDashboardSection === "preferences" && settings && (
+                <div>
+                  <SettingsPanel
+                    settings={settings}
+                    onSave={handleSaveSettings}
+                    onDeleteSubscriptions={handleDeleteAllSubscriptions}
+                    onClearWatchHistory={handleClearWatchHistory}
+                    onResetSettings={handleResetAllSettings}
+                    subscriptionLists={subscriptionLists}
+                    currentListId={currentListId}
+                    isOpen={true}
+                    onClose={() => setCurrentPage("home")}
+                  />
                 </div>
-              </div>
-            ) : settings ? (
-              <div className="max-w-2xl">
-                <SettingsPanel
-                  settings={settings}
-                  onSave={async (newSettings) => {
-                    await handleSaveSettings(newSettings);
-                    setCurrentPage("home");
-                  }}
+              )}
+
+              {currentDashboardSection === "admin-oidc" && user?.isAdmin && (
+                <AdminOIDC />
+              )}
+              {currentDashboardSection === "admin-users" && user?.isAdmin && (
+                <AdminUsers />
+              )}
+
+              {currentDashboardSection === "admin-system" && user?.isAdmin && (
+                <AdminSystem />
+              )}
+
+              {currentDashboardSection === "danger-zone" && (
+                <DangerZonePanel
                   onDeleteSubscriptions={handleDeleteAllSubscriptions}
                   onClearWatchHistory={handleClearWatchHistory}
                   onResetSettings={handleResetAllSettings}
+                  onDeleteAccount={handleDeleteAccount}
                   subscriptionLists={subscriptionLists}
                   currentListId={currentListId}
-                  isOpen={true}
-                  onClose={() => setCurrentPage("home")}
+                  onShowToast={showToast}
                 />
-              </div>
-            ) : null}
-          </>
-        ) : currentPage === "watch-history" ? (
-          <>
-            {/* Watch History Page */}
-            <div className="mb-8">
-              <button
-                onClick={() => setCurrentPage("home")}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 flex items-center gap-1 cursor-pointer"
-              >
-                ← Back to Feed
-              </button>
-              <div className="flex items-center gap-3 mb-2">
-                <ClientOnly>
-                  <Clock className="w-7 h-7 text-primary" />
-                </ClientOnly>
-                <h2 className="text-2xl sm:text-3xl font-bold">
-                  Watch History
-                </h2>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Your recently watched videos
-              </p>
-            </div>
-
-            <div className="max-w-2xl">
-              <PlaybackHistory
-                onClose={() => setCurrentPage("home")}
-                onPlayVideo={(videoId, progress) => {
-                  // Find the video and play it
-                  const video = videos.find((v) => v.id === videoId);
-                  if (video) {
-                    setInitialProgress(progress);
-                    handlePlayInPlayer(
-                      video.url,
-                      video.id,
-                      video.title,
-                      video.channel,
-                      video.channelId,
-                      video.thumbnail
-                    );
-                    setCurrentPage("home");
-                  }
-                }}
-              />
-            </div>
+              )}
+            </UnifiedDashboardLayout>
           </>
         ) : null}
       </main>
@@ -1934,13 +1975,16 @@ export default function Home() {
           const res = await fetch("/api/subscription-lists", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({ action: "create", name }),
           });
           if (!res.ok) throw new Error("Failed to create list");
           const newList = await res.json();
 
           // Fetch only the updated subscription lists (not videos)
-          const listsRes = await fetch("/api/subscription-lists");
+          const listsRes = await fetch("/api/subscription-lists", {
+            credentials: "include",
+          });
           const listsData = await listsRes.json();
 
           // Update lists first, then set the IDs
@@ -1955,19 +1999,20 @@ export default function Home() {
             fetch("/api/user-state", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              credentials: "include",
               body: JSON.stringify({
                 watchedVideos: Array.from(watchedVideos),
                 hideWatched,
                 filterListId: newList.id,
               }),
             }).catch((e) => console.error("Failed to persist filter list:", e));
-            localStorage.setItem("filterListId", JSON.stringify(newList.id));
           }, 0);
         }}
         onDeleteList={async (listId: string) => {
           const res = await fetch("/api/subscription-lists", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({ action: "delete", listId }),
           });
           if (!res.ok) throw new Error("Failed to delete list");

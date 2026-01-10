@@ -21,7 +21,8 @@ export async function PATCH(
     }
 
     const { id: userId } = await params;
-    const { isAdmin } = await request.json();
+    const body = await request.json();
+    const { isAdmin } = body;
 
     // Prevent removing admin from the default admin user
     if (!isAdmin) {

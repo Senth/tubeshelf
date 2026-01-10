@@ -288,17 +288,6 @@ export default function AdminOIDC({ onBack }: AdminOIDCProps = {}) {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-2xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={() =>
-              onBack ? onBack() : (window.location.href = "/?page=admin")
-            }
-            className="text-primary hover:underline inline-flex items-center gap-2 mb-4 cursor-pointer bg-transparent border-none"
-          >
-            ← Back to Admin Panel
-          </button>
-        </div>
-
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">OIDC Provider</h1>
           <p className="text-muted-foreground">

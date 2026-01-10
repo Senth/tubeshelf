@@ -12,6 +12,7 @@ export async function GET() {
     return NextResponse.json(
       {
         oidcOnly: settings.oidcOnly || false,
+        publicRegistration: settings.publicRegistration || false,
       },
       {
         headers: {
@@ -24,6 +25,9 @@ export async function GET() {
     );
   } catch (error) {
     console.error("[Auth Settings] Failed to get settings:", error);
-    return NextResponse.json({ oidcOnly: false }, { status: 200 });
+    return NextResponse.json(
+      { oidcOnly: false, publicRegistration: false },
+      { status: 200 }
+    );
   }
 }

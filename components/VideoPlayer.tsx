@@ -145,7 +145,7 @@ const VideoPlayerComponent = ({
       } catch (err) {
         // Player might not be ready yet
       }
-    }, 5000); // Report every 5 seconds
+    }, 3000); // Report every 3 seconds (was 5 seconds)
 
     return () => clearInterval(interval);
   }, [playerReady, onProgress]);

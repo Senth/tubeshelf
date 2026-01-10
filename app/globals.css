@@ -71,7 +71,7 @@
 }
 
 /* Smooth scrolling */
-html {
+html[data-scroll-behavior="smooth"] {
   scroll-behavior: smooth;
 }
 

@@ -3,18 +3,21 @@
  */
 export type Page =
   | "home"
+  | "dashboard"
   | "watch-later"
   | "admin"
   | "admin-oidc"
   | "admin-users"
   | "admin-system"
   | "settings"
-  | "watch-history";
+  | "watch-history"
+  | "about"
+  | "danger-zone";
 
 /**
  * Feed tab type
  */
-export type FeedTab = "videos";
+export type FeedTab = "videos" | "watch-later" | "watch-history";
 
 /**
  * Watch Later item interface

@@ -66,29 +66,38 @@ function initializeSchema() {
     ON subscriptions(channel_id);
   `);
 
-  // Playback history
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS playback_history (
-      video_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      video_title TEXT NOT NULL,
-      channel_id TEXT,
-      channel_name TEXT NOT NULL,
-      thumbnail TEXT,
-      timestamp TEXT NOT NULL,
-      duration REAL NOT NULL,
-      progress REAL NOT NULL,
-      completed INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (video_id, user_id),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    
-    CREATE INDEX IF NOT EXISTS idx_playback_history_user_id 
-    ON playback_history(user_id);
-    
-    CREATE INDEX IF NOT EXISTS idx_playback_history_timestamp 
-    ON playback_history(timestamp DESC);
-  `);
+  // Playback history - created without user_id initially, will be migrated
+  // Check if table exists first
+  const playbackHistoryExists = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='playback_history'"
+    )
+    .get() as { name: string } | undefined;
+
+  if (!playbackHistoryExists) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS playback_history (
+        video_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        video_title TEXT NOT NULL,
+        channel_id TEXT,
+        channel_name TEXT NOT NULL,
+        thumbnail TEXT,
+        timestamp TEXT NOT NULL,
+        duration REAL NOT NULL,
+        progress REAL NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (video_id, user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_playback_history_user_id 
+      ON playback_history(user_id);
+      
+      CREATE INDEX IF NOT EXISTS idx_playback_history_timestamp 
+      ON playback_history(timestamp DESC);
+    `);
+  }
 
   // Watched videos
   db.exec(`
@@ -217,6 +226,64 @@ function runMigrations() {
       db.exec(`
         ALTER TABLE users ADD COLUMN is_default_admin INTEGER NOT NULL DEFAULT 0;
       `);
+    }
+
+    // Migration: Make playback_history user-scoped
+    // Check if playback_history has user_id column
+    const playbackHistoryInfo = db.pragma(
+      "table_info(playback_history)"
+    ) as Array<any>;
+    const hasUserIdColumn = playbackHistoryInfo.some(
+      (col: any) => col.name === "user_id"
+    );
+
+    if (!hasUserIdColumn) {
+      console.log(
+        "[Migration] Adding user_id to playback_history (making it user-scoped)"
+      );
+      try {
+        // Backup data (without user association since old data has no user_id)
+        const backupData = db
+          .prepare(
+            "SELECT video_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed FROM playback_history"
+          )
+          .all();
+
+        // Drop old table
+        db.exec("DROP TABLE IF EXISTS playback_history");
+
+        // Recreate table with user_id
+        db.exec(`
+          CREATE TABLE playback_history (
+            video_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            video_title TEXT NOT NULL,
+            channel_id TEXT,
+            channel_name TEXT NOT NULL,
+            thumbnail TEXT,
+            timestamp TEXT NOT NULL,
+            duration REAL NOT NULL,
+            progress REAL NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (video_id, user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+          
+          CREATE INDEX idx_playback_history_user_id 
+          ON playback_history(user_id);
+          
+          CREATE INDEX idx_playback_history_timestamp 
+          ON playback_history(timestamp DESC);
+        `);
+
+        // Note: We don't restore old data since we can't associate it with users
+        // This is acceptable as playback history is non-critical data
+        console.log(
+          `[Migration] Recreated playback_history with user_id (cleared ${backupData.length} unattributable entries)`
+        );
+      } catch (error) {
+        console.error("[Migration] Error migrating playback_history:", error);
+      }
     }
 
     // Migration: Mark welcome wizard as completed for all users

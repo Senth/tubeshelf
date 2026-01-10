@@ -152,12 +152,12 @@ async function handleFeedRequest(
       cachedResult = emptyResult;
       cachedSettings = settingsKey;
       cacheTimestamp = Date.now();
-      
+
       // Reset fetching state and notify pending resolvers
       isFetching = false;
       pendingResolvers.forEach((resolve) => resolve(emptyResult));
       pendingResolvers = [];
-      
+
       return NextResponse.json(emptyResult);
     }
 

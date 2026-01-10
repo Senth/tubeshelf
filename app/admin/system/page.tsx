@@ -137,14 +137,6 @@ export default function AdminSystem({ onBack }: AdminSystemProps = {}) {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <button
-            onClick={() =>
-              onBack ? onBack() : (window.location.href = "/?page=admin")
-            }
-            className="text-sm text-muted-foreground hover:text-foreground mb-4 cursor-pointer bg-transparent border-none"
-          >
-            ← Back to Admin Panel
-          </button>
           <div className="flex items-center gap-3 mb-2">
             <Shield className="w-8 h-8 text-primary" />
             <h1 className="text-3xl font-bold">System Settings</h1>

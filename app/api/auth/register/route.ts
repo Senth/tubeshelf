@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createUser, createSession, getUserByEmail } from "@/lib/auth";
+import { readSettings } from "@/lib/settingsStore";
 
 export async function POST(req: Request) {
   try {
+    // Check if public registration is enabled
+    const settings = await readSettings();
+    if (!settings.publicRegistration) {
+      return NextResponse.json(
+        { error: "Registration is currently disabled" },
+        { status: 403 }
+      );
+    }
+
     const { email, password, name } = await req.json();
 
     if (!email || !password) {
@@ -52,9 +62,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("[Auth] Registration error:", error);
-    return NextResponse.json(
-      { error: "Registration failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Registration failed" }, { status: 500 });
   }
 }

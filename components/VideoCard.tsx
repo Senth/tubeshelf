@@ -244,42 +244,56 @@ export function VideoCard({
               onClick={() => setShowMenu(!showMenu)}
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className={`h-8 w-8 transition-all duration-150 ${
+                showMenu
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-primary/5"
+              } focus:ring-2 focus:ring-primary/50 focus:ring-offset-0`}
             >
               <MoreVertical className="w-4 h-4" />
             </Button>
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-md shadow-lg z-10 min-w-48">
-                <button
-                  onClick={handleMarkWatched}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2 first:rounded-t-md"
-                >
-                  <Eye className="w-4 h-4" />
-                  {watched ? "Mark as unwatched" : "Mark as watched"}
-                </button>
-                <button
-                  onClick={handleWatchLater}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2"
-                >
-                  <Clock className="w-4 h-4" />
-                  Watch later
-                </button>
-                <button
-                  onClick={handleShare}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2 last:rounded-b-md"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-4 h-4 text-green-500" />
-                      Copied to clipboard
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="w-4 h-4" />
-                      Share
-                    </>
-                  )}
-                </button>
+              <div className="absolute right-0 top-full mt-2 bg-card border border-border/50 rounded-lg shadow-xl backdrop-blur-sm z-10 min-w-56 overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-primary/5 to-transparent border-b border-border/30 px-4 py-2.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Video Options
+                  </p>
+                </div>
+
+                {/* Menu Items */}
+                <div className="py-1">
+                  <button
+                    onClick={handleMarkWatched}
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 transition-colors flex items-center gap-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"
+                  >
+                    <Eye className="w-4 h-4 flex-shrink-0" />
+                    {watched ? "Mark as unwatched" : "Mark as watched"}
+                  </button>
+                  <button
+                    onClick={handleWatchLater}
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 transition-colors flex items-center gap-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"
+                  >
+                    <Clock className="w-4 h-4 flex-shrink-0" />
+                    Watch later
+                  </button>
+                  <button
+                    onClick={handleShare}
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 transition-colors flex items-center gap-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-4 h-4 flex-shrink-0 text-green-500" />
+                        <span className="text-green-600">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="w-4 h-4 flex-shrink-0" />
+                        Copy link
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             )}
           </div>

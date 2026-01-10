@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/currentUser";
 import { resolveChannelId, fetchChannelFeed } from "@/lib/videoFetcher";
 import {
   readSubscriptions,
@@ -7,11 +8,19 @@ import {
 } from "@/lib/subscriptionStore";
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const subs = await readSubscriptions();
   return NextResponse.json(subs);
 }
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const body = await req.json().catch(() => null);
   const input = body?.input as string | undefined;
   if (!input || typeof input !== "string") {

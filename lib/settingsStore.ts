@@ -7,6 +7,7 @@ export interface AppSettings {
   videoPlayerMode: "built-in" | "new-tab";
   fetchMethod: "standard" | "rss";
   oidcOnly: boolean;
+  publicRegistration: boolean;
 }
 
 export const defaultSettings: AppSettings = {
@@ -15,6 +16,7 @@ export const defaultSettings: AppSettings = {
   videoPlayerMode: "built-in",
   fetchMethod: "standard",
   oidcOnly: false,
+  publicRegistration: false,
 };
 
 // Run migration on first import
@@ -69,6 +71,7 @@ export async function writeSettings(
     "videoPlayerMode",
     "fetchMethod",
     "oidcOnly",
+    "publicRegistration",
   ];
 
   const stmt = db.prepare(

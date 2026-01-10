@@ -111,7 +111,7 @@ export function WelcomeWizard({
               We'll ask you a few quick questions to customize your experience.
             </p>
             <p className="text-xs text-muted-foreground">
-              You can change these settings anytime in preferences.
+              You can change these settings anytime in Settings.
             </p>
           </div>
         </div>

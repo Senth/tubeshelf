@@ -8,6 +8,8 @@ interface User {
   email: string;
   name: string | null;
   isAdmin: boolean;
+  authType: "local" | "oidc";
+  oidcProvider?: string | null;
 }
 
 export function useAuth() {
@@ -21,7 +23,9 @@ export function useAuth() {
 
   const checkSession = async () => {
     try {
-      const response = await fetch("/api/auth/session");
+      const response = await fetch("/api/auth/session", {
+        credentials: "include",
+      });
       const data = await response.json();
 
       if (data.user) {
@@ -39,7 +43,10 @@ export function useAuth() {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
       setUser(null);
       router.push("/login");
       router.refresh();

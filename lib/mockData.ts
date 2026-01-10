@@ -143,7 +143,10 @@ export async function updateSubscriptionTags(
 }
 
 export async function getSettings() {
-  const res = await fetch("/api/settings", { cache: "no-store" });
+  const res = await fetch("/api/settings", {
+    cache: "no-store",
+    credentials: "include",
+  });
   if (!res.ok) {
     throw new Error("Failed to fetch settings");
   }
@@ -154,6 +157,7 @@ export async function updateSettings(updates: Record<string, any>) {
   const res = await fetch("/api/settings", {
     method: "POST",
     headers,
+    credentials: "include",
     body: JSON.stringify(updates),
   });
   if (!res.ok) {
@@ -164,7 +168,10 @@ export async function updateSettings(updates: Record<string, any>) {
 }
 
 export async function getUserState() {
-  const res = await fetch("/api/user-state", { cache: "no-store" });
+  const res = await fetch("/api/user-state", {
+    cache: "no-store",
+    credentials: "include",
+  });
   if (!res.ok) {
     throw new Error("Failed to fetch user state");
   }
@@ -175,6 +182,7 @@ export async function updateUserState(state: Record<string, any>) {
   const res = await fetch("/api/user-state", {
     method: "POST",
     headers,
+    credentials: "include",
     body: JSON.stringify(state),
   });
   if (!res.ok) {
@@ -188,6 +196,7 @@ export async function clearWatchHistory() {
   const res = await fetch("/api/danger/clear-watch-history", {
     method: "POST",
     headers,
+    credentials: "include",
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -200,6 +209,7 @@ export async function resetAllSettings() {
   const res = await fetch("/api/danger/reset-settings", {
     method: "POST",
     headers,
+    credentials: "include",
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
