@@ -40,11 +40,16 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/lib ./lib
 
 # Copy CLI and server scripts
+COPY --from=builder /app/cli.js ./
 COPY server.js ./
+COPY cli ./
 COPY entrypoint.sh ./
 
 # Make scripts executable
-RUN chmod +x ./server.js ./entrypoint.sh
+RUN chmod +x ./cli.js ./server.js ./cli ./entrypoint.sh
+
+# Create symlink for easy CLI access
+RUN ln -s /app/cli /usr/local/bin/cli
 
 # Create required dirs and ensure non-root can write
 RUN mkdir -p /app/data /app/.next/cache && \

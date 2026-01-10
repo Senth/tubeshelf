@@ -1921,7 +1921,7 @@ export default function Home() {
                 },
               ]}
             >
-              {currentDashboardSection === "profile" && <AccountSettings />}
+              {currentDashboardSection === "profile" && <AccountSettings onShowToast={showToast} />}
 
               {currentDashboardSection === "preferences" && settings && (
                 <div>

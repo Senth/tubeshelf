@@ -287,7 +287,9 @@ function runMigrations() {
     }
 
     // Migration: Mark welcome wizard as completed for all users
-    console.log("[Migration] Ensuring welcome wizard is marked as completed");
+    if (process.env.CLI_MODE !== "true") {
+      console.log("[Migration] Ensuring welcome wizard is marked as completed");
+    }
     const users = db.prepare("SELECT id FROM users").all() as Array<{
       id: string;
     }>;
@@ -302,9 +304,11 @@ function runMigrations() {
         .get(user.id, "hasCompletedWelcome") as { value: string } | undefined;
 
       if (!existing) {
-        console.log(
-          `[Migration] Setting hasCompletedWelcome for user ${user.id}`
-        );
+        if (process.env.CLI_MODE !== "true") {
+          console.log(
+            `[Migration] Setting hasCompletedWelcome for user ${user.id}`
+          );
+        }
         configStmt.run(user.id, "hasCompletedWelcome", JSON.stringify(true));
       }
     }

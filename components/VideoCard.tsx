@@ -1,5 +1,13 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Clock, Eye, MoreVertical, Check, Share2 } from "lucide-react";
+import {
+  Clock,
+  Eye,
+  EyeOff,
+  MoreVertical,
+  Check,
+  Share2,
+  CheckCircle2,
+} from "lucide-react";
 import { Button } from "./ui/button";
 
 function formatViewCount(views: number): string {

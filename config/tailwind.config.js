@@ -1,6 +1,9 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-module.exports = {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default {
   content: [
     path.join(__dirname, '../app/**/*.{js,ts,jsx,tsx}'),
     path.join(__dirname, '../components/**/*.{js,ts,jsx,tsx}'),
@@ -42,6 +45,14 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
       },
       borderColor: {
         DEFAULT: "hsl(var(--border))",
@@ -58,4 +69,4 @@ module.exports = {
     },
   },
   plugins: [],
-}
+};

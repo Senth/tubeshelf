@@ -29,13 +29,21 @@ export function Toast({
   }, [id, duration, onClose]);
 
   const icons = {
-    success: <Check className="w-5 h-5 text-green-500" />,
-    error: <AlertCircle className="w-5 h-5 text-red-500" />,
-    info: <Info className="w-5 h-5 text-blue-500" />,
+    success: <Check className="w-5 h-5 text-green-600 dark:text-green-400" />,
+    error: <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />,
+    info: <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />,
+  };
+
+  const borderColors = {
+    success: "border-green-200 dark:border-green-900/50",
+    error: "border-red-200 dark:border-red-900/50",
+    info: "border-blue-200 dark:border-blue-900/50",
   };
 
   return (
-    <div className="flex items-center gap-3 bg-card border border-border rounded-lg shadow-lg p-4 min-w-80 max-w-md animate-in slide-in-from-bottom-5 fade-in">
+    <div
+      className={`flex items-center gap-3 bg-card border-2 ${borderColors[type]} rounded-lg shadow-lg p-4 min-w-80 max-w-md animate-in slide-in-from-bottom-5 fade-in`}
+    >
       {icons[type]}
       <p className="flex-1 text-sm font-medium">{message}</p>
       <div className="flex items-center gap-2">

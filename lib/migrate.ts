@@ -19,7 +19,9 @@ async function readJsonFile<T>(filename: string, defaultValue: T): Promise<T> {
 export async function migrateFromJson() {
   // Skip if database already exists
   if (databaseExists()) {
-    console.log("[Migration] Database already exists, skipping migration");
+    if (process.env.CLI_MODE !== "true") {
+      console.log("[Migration] Database already exists, skipping migration");
+    }
     return;
   }
 

@@ -4,4 +4,4 @@ const nextConfig = {
   reactStrictMode: false, // Disabled to prevent double initialization
 };
 
-module.exports = nextConfig;
+export default nextConfig;

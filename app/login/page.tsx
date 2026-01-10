@@ -160,9 +160,60 @@ export default function Login() {
         )}
 
         <div className="bg-card rounded-lg shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-center mb-6">
+          {/* Tubeshelf Branding */}
+          <div className="text-center mb-8">
+            <div className="inline-block mb-4">
+              {/* Light mode icon */}
+              <svg
+                width="80"
+                height="80"
+                viewBox="0 0 100 100"
+                xmlns="http://www.w3.org/2000/svg"
+                className="dark:hidden"
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  width="100"
+                  height="100"
+                  rx="18"
+                  fill="#e0e0e0"
+                />
+                <rect x="18" y="58" width="64" height="12" fill="#333" />
+                <rect x="18" y="66" width="64" height="4" fill="#555" />
+                <rect x="26" y="38" width="12" height="26" fill="#666" />
+                <rect x="44" y="32" width="12" height="32" fill="#888" />
+                <polygon points="62,32 78,50 62,64" fill="#d32f2f" />
+              </svg>
+              {/* Dark mode icon */}
+              <svg
+                width="80"
+                height="80"
+                viewBox="0 0 100 100"
+                xmlns="http://www.w3.org/2000/svg"
+                className="hidden dark:block"
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  width="100"
+                  height="100"
+                  rx="18"
+                  fill="#1e1e1e"
+                />
+                <rect x="18" y="58" width="64" height="12" fill="#3b3b3b" />
+                <rect x="18" y="66" width="64" height="4" fill="#2a2a2a" />
+                <rect x="26" y="38" width="12" height="26" fill="#666" />
+                <rect x="44" y="32" width="12" height="32" fill="#777" />
+                <polygon points="62,32 78,50 62,64" fill="#d32f2f" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-foreground">TubeShelf</h1>
+          </div>
+
+          <h2 className="text-xl font-semibold text-center mb-6 text-foreground">
             {oidcOnly ? "Sign In" : isLogin ? "Sign In" : "Create Account"}
-          </h1>
+          </h2>
 
           {!settingsLoaded ? (
             <div className="flex justify-center items-center py-8">

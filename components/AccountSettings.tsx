@@ -6,19 +6,19 @@ import { useAuth } from "@/hooks/useAuth";
 
 interface AccountSettingsProps {
   onClose?: () => void;
+  onShowToast?: (message: string, type: "success" | "error" | "info") => void;
 }
 
-export function AccountSettings({ onClose }: AccountSettingsProps) {
+export function AccountSettings({
+  onClose,
+  onShowToast,
+}: AccountSettingsProps) {
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [message, setMessage] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<
     Record<string, string | undefined>
   >({});
@@ -53,12 +53,11 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 
     if (Object.keys(newErrors).length > 0) {
       setFieldErrors(newErrors);
-      setMessage({ type: "error", message: "Please correct the errors below" });
+      onShowToast?.("Please correct the errors below", "error");
       return;
     }
 
     setLoading(true);
-    setMessage(null);
 
     try {
       const response = await fetch("/api/user/profile", {
@@ -70,20 +69,13 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage({
-          type: "error",
-          message: data.error || "Failed to update profile",
-        });
+        onShowToast?.(data.error || "Failed to update profile", "error");
         return;
       }
 
-      setMessage({ type: "success", message: "Profile updated successfully" });
-      setTimeout(() => setMessage(null), 2000);
+      onShowToast?.("Profile updated successfully", "success");
     } catch (error) {
-      setMessage({
-        type: "error",
-        message: "An error occurred while updating profile",
-      });
+      onShowToast?.("An error occurred while updating profile", "error");
     } finally {
       setLoading(false);
     }
@@ -103,12 +95,11 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 
     if (Object.keys(newErrors).length > 0) {
       setFieldErrors(newErrors);
-      setMessage({ type: "error", message: "Please correct the errors below" });
+      onShowToast?.("Please correct the errors below", "error");
       return;
     }
 
     setLoading(true);
-    setMessage(null);
 
     try {
       const response = await fetch("/api/user/password", {
@@ -123,23 +114,16 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage({
-          type: "error",
-          message: data.error || "Failed to change password",
-        });
+        onShowToast?.(data.error || "Failed to change password", "error");
         return;
       }
 
-      setMessage({ type: "success", message: "Password changed successfully" });
+      onShowToast?.("Password changed successfully", "success");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setTimeout(() => setMessage(null), 2000);
     } catch (error) {
-      setMessage({
-        type: "error",
-        message: "An error occurred while changing password",
-      });
+      onShowToast?.("An error occurred while changing password", "error");
     } finally {
       setLoading(false);
     }
@@ -189,36 +173,6 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
       <p className="text-sm text-muted-foreground mb-6">
         Manage your account information and security settings
       </p>
-
-      {/* Top Error/Success Toast */}
-      {message && (
-        <div className="animate-in slide-in-from-top-4 fade-in duration-300">
-          <div
-            className={`border-l-4 bg-gradient-to-r backdrop-blur-sm rounded-r-lg px-4 py-3 shadow-lg ${
-              message.type === "success"
-                ? "border-green-500 bg-green-500/15 via-green-500/10 to-transparent"
-                : "border-red-500 bg-red-500/15 via-red-500/10 to-transparent"
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              {message.type === "success" ? (
-                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              )}
-              <p
-                className={`${
-                  message.type === "success"
-                    ? "text-green-700 dark:text-green-400"
-                    : "text-red-700 dark:text-red-400"
-                } font-medium text-sm`}
-              >
-                {message.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Profile Information Card */}
       <div className="bg-card border border-border rounded-lg p-6">

@@ -63,17 +63,17 @@ Access the web UI at **http://localhost:3000**
 Run commands in the container to manage users and settings:
 
 ```bash
-# Reset local user password
-docker exec tubeshelf node server.js reset-password <email> <password>
+# List local users
+docker exec tubeshelf cli user-list
 
-# Toggle OIDC-only login mode
-docker exec tubeshelf node server.js toggle-oidc-only [enable|disable]
+# Reset local user password (generates a random 16-letter password)
+docker exec tubeshelf cli user-reset-password <email>
 
 # Get OIDC-only mode status
-docker exec tubeshelf node server.js get-oidc-only
+docker exec tubeshelf cli oidc-status
 
-# List local users
-docker exec tubeshelf node server.js list-local-users
+# Toggle OIDC-only login mode
+docker exec tubeshelf cli oidc-toggle [enable|disable]
 ```
 
 ## Why TubeShelf?

@@ -2,14 +2,29 @@ import { getDb } from "./db";
 import { getUserByEmail, updateUserPassword } from "./auth";
 import { readSettings, writeSettings } from "./settingsStore";
 import { getOIDCProviders } from "./oidc";
+import crypto from "crypto";
 
 /**
- * Reset a local user's password from CLI
+ * Generate a random password with only letters (16 characters)
+ */
+function generateRandomPassword(): string {
+  const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let password = "";
+  const randomBytes = crypto.randomBytes(16);
+
+  for (let i = 0; i < 16; i++) {
+    password += letters[randomBytes[i] % letters.length];
+  }
+
+  return password;
+}
+
+/**
+ * Reset a local user's password from CLI with a randomly generated password
  */
 export async function resetUserPassword(
-  email: string,
-  newPassword: string
-): Promise<{ success: boolean; message: string }> {
+  email: string
+): Promise<{ success: boolean; message: string; password?: string }> {
   try {
     const user = getUserByEmail(email);
 
@@ -27,18 +42,15 @@ export async function resetUserPassword(
       };
     }
 
-    if (newPassword.length < 8) {
-      return {
-        success: false,
-        message: "Password must be at least 8 characters long.",
-      };
-    }
+    // Generate a random 16-letter password
+    const newPassword = generateRandomPassword();
 
     await updateUserPassword(user.id, newPassword);
 
     return {
       success: true,
       message: `Password for user "${email}" has been reset successfully.`,
+      password: newPassword,
     };
   } catch (error) {
     console.error("Error resetting password:", error);
@@ -178,37 +190,36 @@ export async function executeCLICommand(
     return {
       success: false,
       message: `Usage:
-  node server.js reset-password <email> <new-password>
-  node server.js toggle-oidc-only [enable|disable]
-  node server.js get-oidc-only
-  node server.js list-local-users
+  tubeshelf-cli <command> [options]
 
-Commands:
-  reset-password <email> <password>  Reset password for a local user
-  toggle-oidc-only [enable|disable]  Toggle OIDC-only login mode
-  get-oidc-only                      Get current OIDC-only mode status
-  list-local-users                   List all local (non-OIDC) users`,
+User Management:
+  user-list                          List all local users
+  user-reset-password <email>        Reset password for a local user (generates random 16-letter password)
+
+OIDC Configuration:
+  oidc-status                        Get current OIDC-only mode status
+  oidc-toggle [enable|disable]       Toggle OIDC-only login mode`,
     };
   }
 
   const command = args[0];
 
-  if (command === "reset-password") {
-    if (args.length < 3) {
+  // Support both old and new command names for backwards compatibility
+  if (command === "user-reset-password" || command === "reset-password") {
+    if (args.length < 2) {
       return {
         success: false,
         message:
-          "Usage: reset-password <email> <new-password>\nPassword must be at least 8 characters.",
+          "Usage: user-reset-password <email>\nA random 16-letter password will be generated.",
       };
     }
 
     const email = args[1];
-    const newPassword = args.slice(2).join(" ");
 
-    return await resetUserPassword(email, newPassword);
+    return await resetUserPassword(email);
   }
 
-  if (command === "toggle-oidc-only") {
+  if (command === "oidc-toggle" || command === "toggle-oidc-only") {
     let enable: boolean | undefined;
     if (args.length > 1) {
       if (args[1].toLowerCase() === "enable") {
@@ -219,7 +230,7 @@ Commands:
         return {
           success: false,
           message:
-            "Usage: toggle-oidc-only [enable|disable]\nIf no argument is provided, the current setting will be toggled.",
+            "Usage: oidc-toggle [enable|disable]\nIf no argument is provided, the current setting will be toggled.",
         };
       }
     }
@@ -227,11 +238,11 @@ Commands:
     return await toggleOIDCOnlyMode(enable);
   }
 
-  if (command === "get-oidc-only") {
+  if (command === "oidc-status" || command === "get-oidc-only") {
     return await getOIDCOnlyMode();
   }
 
-  if (command === "list-local-users") {
+  if (command === "user-list" || command === "list-local-users") {
     const result = listLocalUsers();
     return {
       success: result.success,

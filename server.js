@@ -65,10 +65,14 @@ async function main() {
   // Check if it's a known CLI command
   if (
     [
+      "user-reset-password",
       "reset-password",
-      "toggle-oidc-only",
-      "get-oidc-only",
+      "user-list",
       "list-local-users",
+      "oidc-toggle",
+      "toggle-oidc-only",
+      "oidc-status",
+      "get-oidc-only",
       "help",
       "--help",
       "-h",

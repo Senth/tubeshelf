@@ -16,15 +16,19 @@
     --muted-foreground: 0 0% 45.1%;
     --accent: 220 90% 56%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
-    --primary: 0 0% 9%;
+    --primary: 220 85% 56%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 9%;
     --ring: 220 90% 56%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
     --radius: 0.5rem;
   }
 
@@ -37,17 +41,21 @@
     --popover-foreground: 0 0% 94%;
     --muted: 0 0% 30%;
     --muted-foreground: 0 0% 60%;
-    --accent: 220 90% 56%;
+    --accent: 220 85% 60%;
     --accent-foreground: 0 0% 11%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 98.2%;
     --border: 0 0% 20%;
     --input: 0 0% 20%;
-    --primary: 220 90% 56%;
+    --primary: 220 85% 60%;
     --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 20%;
     --secondary-foreground: 0 0% 94%;
-    --ring: 220 90% 56%;
+    --ring: 220 85% 60%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 10%;
   }
 }
 
@@ -92,6 +100,25 @@ html[data-scroll-behavior="smooth"] {
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted));
+}
+
+/* Button hover states with color */
+.btn-success {
+  background: hsl(var(--success));
+  color: hsl(var(--success-foreground));
+}
+
+.btn-success:hover {
+  background: hsl(var(--success) / 0.9);
+}
+
+.btn-warning {
+  background: hsl(var(--warning));
+  color: hsl(var(--warning-foreground));
+}
+
+.btn-warning:hover {
+  background: hsl(var(--warning) / 0.9);
 }
 
 /* Animation utilities */

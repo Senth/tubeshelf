@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
+// Set CLI mode to suppress migration logs
+process.env.CLI_MODE = 'true';
+
 /**
  * CLI entry point for tubeshelf
  * Usage:
- *   node cli.js reset-password <email> <password>
+ *   node cli.js reset-password <email>
  *   node cli.js toggle-oidc-only [enable|disable]
  *   node cli.js get-oidc-only
  *   node cli.js list-local-users
@@ -19,30 +22,25 @@ async function main() {
 Tubeshelf CLI Management Tool
 
 Usage:
-  node cli.js COMMAND [OPTIONS]
+  tubeshelf-cli <command> [options]
 
-Commands:
-  reset-password <email> <password>     Reset the password for a local user
-                                        The password must be at least 8 characters
-                                        Example: node cli.js reset-password user@example.com newPassword123
+User Management:
+  user-list                             List all local users
+  user-reset-password <email>           Reset the password for a local user
+                                        A random 16-letter password will be generated and displayed
 
-  toggle-oidc-only [enable|disable]     Toggle OIDC-only login mode
+OIDC Configuration:
+  oidc-status                           Show current OIDC-only login mode status
+  oidc-toggle [enable|disable]          Toggle OIDC-only login mode
                                         enable   - Enable OIDC-only login (local passwords disabled)
                                         disable  - Disable OIDC-only login (allow both OIDC and local passwords)
                                         no arg   - Toggle current setting
-                                        Example: node cli.js toggle-oidc-only enable
-
-  get-oidc-only                         Show current OIDC-only login mode status
-                                        Example: node cli.js get-oidc-only
-
-  list-local-users                      List all local (non-OIDC) users
-                                        Example: node cli.js list-local-users
 
 Examples:
-  node cli.js reset-password admin@example.com SecurePass123
-  node cli.js toggle-oidc-only enable
-  node cli.js get-oidc-only
-  node cli.js list-local-users
+  tubeshelf-cli user-list
+  tubeshelf-cli user-reset-password admin@example.com
+  tubeshelf-cli oidc-status
+  tubeshelf-cli oidc-toggle enable
     `);
     process.exit(0);
   }
@@ -64,6 +62,14 @@ Examples:
       }
     } else {
       console.log(result.message);
+    }
+    
+    // Display generated password if present
+    if (result.password) {
+      console.log("\n" + "=".repeat(50));
+      console.log("Generated Password: " + result.password);
+      console.log("=".repeat(50));
+      console.log("\n⚠️  Save this password securely - it will not be shown again!");
     }
 
     if (!result.success) {

@@ -48,7 +48,11 @@ export function getOIDCProviders(): OIDCProvider[] {
         enabled, 
         created_at as createdAt 
       FROM oidc_providers 
-      WHERE enabled = 1`
+      WHERE enabled = 1 
+        AND client_id IS NOT NULL 
+        AND client_id != '' 
+        AND client_secret IS NOT NULL 
+        AND client_secret != ''`
     )
     .all() as any[];
 
@@ -62,7 +66,9 @@ export function getOIDCProviders(): OIDCProvider[] {
 export function getPublicOIDCProviders(): Array<{ id: string; name: string }> {
   const db = getDb();
   return db
-    .prepare(`SELECT id, name FROM oidc_providers WHERE enabled = 1`)
+    .prepare(
+      `SELECT id, name FROM oidc_providers WHERE enabled = 1 AND client_id IS NOT NULL AND client_id != '' AND client_secret IS NOT NULL AND client_secret != ''`
+    )
     .all() as Array<{ id: string; name: string }>;
 }
 
@@ -87,11 +93,17 @@ export function getOIDCProvider(id: string): OIDCProvider | null {
         enabled, 
         created_at as createdAt 
       FROM oidc_providers 
-      WHERE id = ?`
+      WHERE id = ? AND enabled = 1`
     )
     .get(id) as any | undefined;
 
   if (!provider) return null;
+
+  // Validate required credentials
+  if (!provider.clientId || !provider.clientSecret) {
+    console.error(`[OIDC] Provider ${id} is missing client credentials`);
+    return null;
+  }
 
   return {
     ...provider,
@@ -116,8 +128,9 @@ export function createOIDCProvider(data: {
 }): OIDCProvider {
   const db = getDb();
 
+  // Use INSERT OR REPLACE to handle case where provider with same ID exists
   db.prepare(
-    `INSERT INTO oidc_providers (
+    `INSERT OR REPLACE INTO oidc_providers (
       id, name, issuer, base_url, discovery_url, domain, redirect_uri,
       client_id, client_secret, scopes, auto_provision,
       group_claim_name, admin_group_value, enabled
@@ -140,7 +153,35 @@ export function createOIDCProvider(data: {
     1 // Enable by default
   );
 
-  return getOIDCProvider(data.id)!;
+  // Need to get provider without credential validation for creation
+  const db2 = getDb();
+  const provider = db2
+    .prepare(
+      `SELECT 
+        id, 
+        name, 
+        issuer,
+        base_url as baseUrl,
+        discovery_url as discoveryUrl,
+        domain,
+        redirect_uri as redirectUri,
+        client_id as clientId, 
+        client_secret as clientSecret,
+        scopes,
+        auto_provision as autoProvision,
+        group_claim_name as groupClaimName,
+        admin_group_value as adminGroupValue,
+        enabled, 
+        created_at as createdAt 
+      FROM oidc_providers 
+      WHERE id = ?`
+    )
+    .get(data.id) as any;
+
+  return {
+    ...provider,
+    autoProvision: provider.autoProvision === 1,
+  };
 }
 
 export function updateOIDCProvider(
@@ -284,6 +325,13 @@ export async function exchangeCodeForToken(
   code: string,
   redirectUri: string
 ): Promise<TokenResponse> {
+  // Validate provider credentials
+  if (!provider.clientId || !provider.clientSecret) {
+    throw new Error(
+      "OIDC provider is missing client credentials. Please configure the provider in admin settings."
+    );
+  }
+
   const config = await getOIDCDiscoveryConfig(provider);
   const tokenEndpoint = config.token_endpoint;
 
