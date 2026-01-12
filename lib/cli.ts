@@ -185,6 +185,7 @@ export function listLocalUsers(): {
 /**
  * Parse and execute CLI command
  */
+export async function executeCLICommand(
   args: string[]
 ): Promise<{ success: boolean; message: string; data?: any }> {
   if (args.length === 0) {
