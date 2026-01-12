@@ -13,20 +13,37 @@
  *   node server.js list-local-users       - List local users
  */
 
+
 let executeCLICommand;
+let migrateFromJson;
 try {
   const cliModule = await import("./lib/cli.js");
   executeCLICommand = cliModule.executeCLICommand;
 } catch (e) {
-  // CLI module not available in standalone build
   executeCLICommand = null;
+}
+try {
+  const migrateModule = await import("./lib/migrate.js");
+  migrateFromJson = migrateModule.migrateFromJson;
+} catch (e) {
+  migrateFromJson = null;
 }
 
 async function main() {
   const args = process.argv.slice(2);
 
   // If no arguments or if the first argument doesn't look like a command, start the server
+
   if (args.length === 0) {
+    // Run migration before starting the server
+    if (migrateFromJson) {
+      try {
+        await migrateFromJson();
+      } catch (e) {
+        console.error("Migration failed:", e);
+        process.exit(1);
+      }
+    }
     // Start the Next.js server
     const { createServer } = await import("http");
     const { NextServer } = await import("next/dist/server/next.js");

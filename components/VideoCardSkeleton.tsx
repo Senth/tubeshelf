@@ -5,7 +5,7 @@ export function VideoCardSkeleton() {
       <div className="relative overflow-hidden bg-secondary aspect-video rounded-t-lg">
         <div className="w-full h-full bg-muted" />
         {/* Duration badge skeleton */}
-        <div className="absolute top-2 right-2 bg-muted/50 h-5 w-12 rounded" />
+        <div className="absolute bottom-2 right-2 bg-muted/50 h-5 w-12 rounded" />
       </div>
 
       {/* Content skeleton */}

@@ -107,7 +107,7 @@ export async function writeLists(data: SubscriptionListsData, userId: string) {
       "INSERT INTO subscription_lists (id, name, user_id, created_at) VALUES (?, ?, ?, ?)"
     );
     const subStmt = db.prepare(
-      "INSERT INTO subscriptions (id, list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO subscriptions (list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
 
     for (const list of data.lists) {
@@ -115,7 +115,6 @@ export async function writeLists(data: SubscriptionListsData, userId: string) {
 
       for (const sub of list.subscriptions) {
         subStmt.run(
-          sub.id,
           list.id,
           sub.channelId,
           sub.title,
@@ -210,9 +209,8 @@ export async function addSubscriptionToList(
 
   if (!existing) {
     db.prepare(
-      "INSERT INTO subscriptions (id, list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO subscriptions (list_id, channel_id, title, url, thumbnail, added_at, last_uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(
-      subscription.id,
       listId,
       subscription.channelId,
       subscription.title,

@@ -219,7 +219,7 @@ export function VideoCard({
           }}
         />
 
-        {/* Duration badge - top right */}
+        {/* Duration badge - bottom right */}
         {(() => {
           // Show badge only if duration display is enabled AND duration exists
           if (!showDurationPlaceholder || !duration) {
@@ -227,7 +227,7 @@ export function VideoCard({
           }
 
           return (
-            <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+            <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded font-medium">
               {duration}
             </div>
           );

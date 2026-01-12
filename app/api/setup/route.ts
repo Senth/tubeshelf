@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { needsSetup } from "@/lib/setup";
 import { createUser, createSession } from "@/lib/auth";
+import { migrateFromJson } from "@/lib/migrate";
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,6 +45,13 @@ export async function POST(request: NextRequest) {
       isAdmin: true,
       isDefaultAdmin: true,
     });
+
+    // Run migration after first user creation (force)
+    try {
+      await migrateFromJson(true);
+    } catch (e) {
+      console.error("[Migration] Error after admin creation:", e);
+    }
 
     // Create session
     const session = createSession(user.id);

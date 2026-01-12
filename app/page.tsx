@@ -142,6 +142,9 @@ export default function Home() {
   const initializingRef = useRef(false); // Prevent concurrent initialization
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
+  const [userStateLoaded, setUserStateLoaded] = useState(false);
+  const [hasCompletedWelcome, setHasCompletedWelcome] =
+    useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const currentSearchParamsRef = useRef("");
   const [highlightedVideoIndex, setHighlightedVideoIndex] = useState<
@@ -478,7 +481,7 @@ export default function Home() {
     }
   };
 
-  const loadUserState = async () => {
+  const loadUserState = async (): Promise<{ hasCompletedWelcome: boolean } | null> => {
     try {
       const res = await fetch("/api/user-state", { credentials: "include" });
       if (res.ok) {
@@ -497,9 +500,16 @@ export default function Home() {
             }))
           );
         }
+        const hasCompleted = !!data.hasCompletedWelcome;
+        setHasCompletedWelcome(hasCompleted);
+        return { hasCompletedWelcome: hasCompleted };
       }
+      return null;
     } catch (e) {
       console.error("Failed to load user state:", e);
+      return null;
+    } finally {
+      setUserStateLoaded(true);
     }
   };
 
@@ -603,13 +613,11 @@ export default function Home() {
   useEffect(() => {
     // Skip initialization while auth is still loading
     if (authLoading) {
-      console.log("[Init] Auth still loading, waiting...");
       return;
     }
 
     // If user is not authenticated, don't initialize app data
     if (!user) {
-      console.log("[Init] No authenticated user, waiting for login");
       return;
     }
 
@@ -641,11 +649,9 @@ export default function Home() {
       true // Skip auto-init
     );
 
-    // Load other settings
+    // Load other settings and user state
     const init = async () => {
-      // Prevent concurrent initialization attempts
       if (initializingRef.current) {
-        console.log("[Init] Initialization already in progress, skipping");
         return;
       }
       initializingRef.current = true;
@@ -654,32 +660,37 @@ export default function Home() {
         const appSettings = await getSettings();
         setSettings(appSettings);
 
-        // Check if welcome wizard has been completed
-        // This uses a simple localStorage flag that persists across page reloads and browser restarts
-        const welcomeCompleted = localStorage.getItem(
-          "welcome_wizard_completed"
-        );
-        const isFirstVisit = !welcomeCompleted;
-
-        console.log(
-          "[Init] Welcome wizard status: isFirstVisit=",
-          isFirstVisit,
-          "flag=",
-          welcomeCompleted
-        );
-
-        // Show welcome wizard only if it hasn't been completed
-        if (isFirstVisit) {
-          console.log("[Init] Showing welcome wizard");
+        // ALWAYS check wizard completion status directly from database API
+        // Do not rely on any React state variables - only trust the database
+        try {
+          const res = await fetch("/api/user-state", { credentials: "include" });
+          if (res.ok) {
+            const data = await res.json();
+            const hasCompleted = !!data.hasCompletedWelcome;
+            
+            // Update local state for UI consistency, but decision is based on database
+            setHasCompletedWelcome(hasCompleted);
+            
+            // Show welcome wizard only if database says user has not completed it
+            if (!hasCompleted) {
+              setShowWelcomeWizard(true);
+            } else {
+              setShowWelcomeWizard(false);
+              feedManager.initialize();
+            }
+          } else {
+            console.error("[Init] Failed to load user state from database");
+            // If we can't check database, show wizard to be safe
+            setShowWelcomeWizard(true);
+          }
+        } catch (e) {
+          console.error("[Init] Error checking database for wizard status:", e);
+          // If we can't check database, show wizard to be safe
           setShowWelcomeWizard(true);
-          // Don't auto-initialize feed for first-time users
-        } else {
-          console.log(
-            "[Init] Welcome wizard already completed, initializing feed"
-          );
-          // For returning users, initialize feed immediately
-          feedManager.initialize();
         }
+
+        // Load full user state for other settings
+        await loadUserState();
 
         // Load subscription lists
         try {
@@ -693,9 +704,6 @@ export default function Home() {
         } catch (e) {
           console.error("Failed to load subscription lists:", e);
         }
-
-        // Load user state from database
-        await loadUserState();
       } catch (e) {
         console.error("Failed to load settings:", e);
       } finally {
@@ -704,9 +712,6 @@ export default function Home() {
     };
 
     init();
-
-    // Don't cleanup subscription - let it persist across remounts
-    // Only cleanup on actual page navigation
   }, [authLoading, user]);
 
   // Persist hideWatched to database
@@ -779,6 +784,8 @@ export default function Home() {
   ]);
 
   // Helper function to persist user state in background
+  // ALWAYS reads current state from database first to ensure we don't overwrite with stale React state
+  // This is critical to preserve values like hasCompletedWelcome when making partial updates
   const persistUserState = async (
     updates: Partial<{
       watchedVideos: string[];
@@ -786,16 +793,33 @@ export default function Home() {
       hideMemberOnly: boolean;
       filterListId: string;
       watchLater: WatchLaterItem[];
+      hasCompletedWelcome: boolean;
     }>
   ) => {
-    const currentState = {
+    // ALWAYS read current state from database first to preserve existing values
+    // This prevents overwriting values like hasCompletedWelcome when making partial updates
+    let currentStateFromDb: any = null;
+    try {
+      const dbRes = await fetch("/api/user-state", { credentials: "include" });
+      if (dbRes.ok) {
+        currentStateFromDb = await dbRes.json();
+      }
+    } catch (e) {
+      console.error("[persistUserState] Failed to read current state from database:", e);
+    }
+
+    // Build current state - ALWAYS use database state if available to preserve existing values
+    // Only fall back to React state if database read failed
+    const currentState = currentStateFromDb || {
       watchedVideos: Array.from(watchedVideos),
       hideWatched,
       hideMemberOnly,
       filterListId,
       watchLater,
+      hasCompletedWelcome,
     };
 
+    // Merge updates into current state (updates override current state)
     const newState = { ...currentState, ...updates };
 
     const res = await fetch("/api/user-state", {
@@ -807,6 +831,11 @@ export default function Home() {
 
     if (!res.ok) {
       throw new Error("Failed to save user state");
+    }
+
+    // Update local state if hasCompletedWelcome was updated
+    if (updates.hasCompletedWelcome !== undefined) {
+      setHasCompletedWelcome(updates.hasCompletedWelcome);
     }
   };
 
@@ -1133,17 +1162,27 @@ export default function Home() {
   };
 
   const handleWelcomeWizardComplete = async (options: WelcomeOptions) => {
-    console.log("[WelcomeComplete] User completed wizard");
-
     try {
-      // Mark welcome as completed - use localStorage as single source of truth
-      // This persists across page reloads and browser restarts
-      localStorage.setItem("welcome_wizard_completed", "true");
-      console.log("[WelcomeComplete] Set welcome_wizard_completed flag");
+      // Mark welcome as completed in the database FIRST (before any other operations)
+      // This ensures the database is updated even if other operations fail
+      await persistUserState({ hasCompletedWelcome: true });
 
-      // Hide wizard immediately after setting the flag
+      // Verify the save succeeded by checking database directly
+      const verifyRes = await fetch("/api/user-state", { credentials: "include" });
+      if (verifyRes.ok) {
+        const verifyData = await verifyRes.json();
+        const verified = !!verifyData.hasCompletedWelcome;
+        if (!verified) {
+          throw new Error("Database verification failed - hasCompletedWelcome not set");
+        }
+      } else {
+        throw new Error("Failed to verify database save");
+      }
+
+      // Update local state only after database verification
       setShowWelcomeWizard(false);
       setWelcomeCompleted(true);
+      setHasCompletedWelcome(true);
 
       // Apply wizard settings (fetchMethod)
       try {
@@ -1166,23 +1205,51 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Failed to complete welcome wizard:", err);
-      // Show wizard again if something critical failed
-      setShowWelcomeWizard(true);
-      setWelcomeCompleted(false);
+      // Verify database state - only show wizard if database says it's not completed
+      try {
+        const verifyRes = await fetch("/api/user-state", { credentials: "include" });
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          const hasCompleted = !!verifyData.hasCompletedWelcome;
+          if (!hasCompleted) {
+            console.error("[WelcomeComplete] Database verification shows not completed, showing wizard");
+            setShowWelcomeWizard(true);
+            setWelcomeCompleted(false);
+          } else {
+            setShowWelcomeWizard(false);
+            setHasCompletedWelcome(true);
+          }
+        }
+      } catch (verifyErr) {
+        console.error("[WelcomeComplete] Failed to verify database state:", verifyErr);
+        setShowWelcomeWizard(true);
+        setWelcomeCompleted(false);
+      }
     }
   };
 
   const handleWelcomeWizardSkip = async () => {
-    console.log("[WelcomeSkip] User skipped wizard");
-
     try {
-      // Mark welcome as completed - use localStorage as single source of truth
-      localStorage.setItem("welcome_wizard_completed", "true");
-      console.log("[WelcomeSkip] Set welcome_wizard_completed flag");
+      // Mark welcome as completed in the database FIRST (before any other operations)
+      // This ensures the database is updated even if other operations fail
+      await persistUserState({ hasCompletedWelcome: true });
 
-      // Hide wizard immediately
+      // Verify the save succeeded by checking database directly
+      const verifyRes = await fetch("/api/user-state", { credentials: "include" });
+      if (verifyRes.ok) {
+        const verifyData = await verifyRes.json();
+        const verified = !!verifyData.hasCompletedWelcome;
+        if (!verified) {
+          throw new Error("Database verification failed - hasCompletedWelcome not set");
+        }
+      } else {
+        throw new Error("Failed to verify database save");
+      }
+
+      // Update local state only after database verification
       setShowWelcomeWizard(false);
       setWelcomeCompleted(true);
+      setHasCompletedWelcome(true);
 
       // Initialize feedManager to start loading the feed
       try {
@@ -1193,9 +1260,26 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Failed to skip welcome wizard:", err);
-      // Show wizard again if something critical failed
-      setShowWelcomeWizard(true);
-      setWelcomeCompleted(false);
+      // Verify database state - only show wizard if database says it's not completed
+      try {
+        const verifyRes = await fetch("/api/user-state", { credentials: "include" });
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          const hasCompleted = !!verifyData.hasCompletedWelcome;
+          if (!hasCompleted) {
+            console.error("[WelcomeSkip] Database verification shows not completed, showing wizard");
+            setShowWelcomeWizard(true);
+            setWelcomeCompleted(false);
+          } else {
+            setShowWelcomeWizard(false);
+            setHasCompletedWelcome(true);
+          }
+        }
+      } catch (verifyErr) {
+        console.error("[WelcomeSkip] Failed to verify database state:", verifyErr);
+        setShowWelcomeWizard(true);
+        setWelcomeCompleted(false);
+      }
     }
   };
 
@@ -1921,7 +2005,9 @@ export default function Home() {
                 },
               ]}
             >
-              {currentDashboardSection === "profile" && <AccountSettings onShowToast={showToast} />}
+              {currentDashboardSection === "profile" && (
+                <AccountSettings onShowToast={showToast} />
+              )}
 
               {currentDashboardSection === "preferences" && settings && (
                 <div>
@@ -1995,7 +2081,7 @@ export default function Home() {
             setCurrentListId(newList.id);
             setFilterListId(newList.id);
 
-            // Persist to server and localStorage
+            // Persist to database
             fetch("/api/user-state", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -2004,6 +2090,7 @@ export default function Home() {
                 watchedVideos: Array.from(watchedVideos),
                 hideWatched,
                 filterListId: newList.id,
+                hasCompletedWelcome,
               }),
             }).catch((e) => console.error("Failed to persist filter list:", e));
           }, 0);

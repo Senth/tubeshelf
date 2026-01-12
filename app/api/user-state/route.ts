@@ -12,9 +12,6 @@ export async function GET() {
   }
 
   const state = await readUserState(user.id);
-  console.log(`[UserState] GET request for ${user.id}:`, {
-    hasCompletedWelcome: state.hasCompletedWelcome,
-  });
   return NextResponse.json(state);
 }
 
@@ -30,11 +27,6 @@ export async function POST(req: Request) {
   if (!body) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
-
-  console.log(`[UserState] POST request for ${user.id}:`, {
-    hasCompletedWelcome: body.hasCompletedWelcome,
-    type: typeof body.hasCompletedWelcome,
-  });
 
   const state: UserState = {
     watchedVideos: Array.isArray(body.watchedVideos) ? body.watchedVideos : [],
@@ -52,10 +44,6 @@ export async function POST(req: Request) {
         : false,
     watchLater: Array.isArray(body.watchLater) ? body.watchLater : [],
   };
-
-  console.log(`[UserState] Processed state for ${user.id}:`, {
-    hasCompletedWelcome: state.hasCompletedWelcome,
-  });
 
   await writeUserState(state, user.id);
   return NextResponse.json(state);

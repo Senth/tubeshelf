@@ -82,10 +82,6 @@ export async function writeUserState(state: UserState, userId: string) {
   await ensureMigration();
   const db = getDb();
 
-  console.log(`[writeUserState] Writing state for ${userId}:`, {
-    hasCompletedWelcome: state.hasCompletedWelcome,
-  });
-
   db.exec("BEGIN TRANSACTION");
 
   try {
@@ -115,9 +111,6 @@ export async function writeUserState(state: UserState, userId: string) {
       JSON.stringify(state.filterListId ?? "all")
     );
     const hasCompletedValue = !!state.hasCompletedWelcome;
-    console.log(
-      `[writeUserState] Setting hasCompletedWelcome to ${hasCompletedValue}`
-    );
     configStmt.run(
       userId,
       "hasCompletedWelcome",

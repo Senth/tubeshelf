@@ -45,10 +45,10 @@ function initializeSchema() {
     ON subscription_lists(user_id);
   `);
 
-  // Subscriptions
+  // Subscriptions (composite primary key: list_id, channel_id)
   db.exec(`
     CREATE TABLE IF NOT EXISTS subscriptions (
-      id TEXT PRIMARY KEY,
+      id TEXT,
       list_id TEXT NOT NULL,
       channel_id TEXT NOT NULL,
       title TEXT NOT NULL,
@@ -56,12 +56,11 @@ function initializeSchema() {
       thumbnail TEXT,
       added_at TEXT NOT NULL,
       last_uploaded_at TEXT,
+      PRIMARY KEY (list_id, channel_id),
       FOREIGN KEY (list_id) REFERENCES subscription_lists(id) ON DELETE CASCADE
     );
-    
     CREATE INDEX IF NOT EXISTS idx_subscriptions_list_id 
     ON subscriptions(list_id);
-    
     CREATE INDEX IF NOT EXISTS idx_subscriptions_channel_id 
     ON subscriptions(channel_id);
   `);

@@ -1,7 +1,9 @@
+
 import { getDb } from "./db";
 import { getUserByEmail, updateUserPassword } from "./auth";
 import { readSettings, writeSettings } from "./settingsStore";
 import { getOIDCProviders } from "./oidc";
+
 import crypto from "crypto";
 
 /**
@@ -183,7 +185,6 @@ export function listLocalUsers(): {
 /**
  * Parse and execute CLI command
  */
-export async function executeCLICommand(
   args: string[]
 ): Promise<{ success: boolean; message: string; data?: any }> {
   if (args.length === 0) {
@@ -203,6 +204,8 @@ OIDC Configuration:
   }
 
   const command = args[0];
+
+
 
   // Support both old and new command names for backwards compatibility
   if (command === "user-reset-password" || command === "reset-password") {
