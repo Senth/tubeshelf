@@ -309,10 +309,33 @@ export function generateOIDCState(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
+/**
+ * Get the base URL from request, respecting reverse proxy headers
+ * Checks X-Forwarded-Host and X-Forwarded-Proto headers for reverse proxy setups
+ * This is essential when running behind nginx proxy manager or similar reverse proxies
+ */
+function getBaseUrlFromRequest(request: Request): string {
+  const url = new URL(request.url);
+  
+  // Check for reverse proxy headers (set by nginx proxy manager, etc.)
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  
+  if (forwardedHost) {
+    // Use forwarded headers if available (these contain the original client request)
+    // forwardedProto is typically "http" or "https" (without colon)
+    const protocol = forwardedProto || (url.protocol === "https:" ? "https" : "http");
+    return `${protocol}://${forwardedHost}`;
+  }
+  
+  // Fall back to request URL (for direct access or when headers aren't set)
+  return `${url.protocol}//${url.host}`;
+}
+
 // Build redirect URI from request URL
 export function buildRedirectUri(request: Request): string {
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}/api/auth/oidc/callback`;
+  const baseUrl = getBaseUrlFromRequest(request);
+  return `${baseUrl}/api/auth/oidc/callback`;
 }
 
 interface OIDCDiscoveryConfig {

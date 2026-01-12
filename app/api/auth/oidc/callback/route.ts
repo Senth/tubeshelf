@@ -10,9 +10,13 @@ export async function GET(req: Request) {
     const state = searchParams.get("state");
     const error = searchParams.get("error");
 
-    // Get base URL from request
+    // Get base URL from request (respects reverse proxy headers)
+    const forwardedHost = req.headers.get("x-forwarded-host");
+    const forwardedProto = req.headers.get("x-forwarded-proto");
     const url = new URL(req.url);
-    const baseUrl = `${url.protocol}//${url.host}`;
+    const baseUrl = forwardedHost
+      ? `${forwardedProto || url.protocol.replace(":", "")}://${forwardedHost}`
+      : `${url.protocol}//${url.host}`;
 
     if (error) {
       console.error("[OIDC] Authorization error:", error);
@@ -79,8 +83,12 @@ export async function GET(req: Request) {
     return response;
   } catch (error) {
     console.error("[OIDC] Callback error:", error);
+    const forwardedHost = req.headers.get("x-forwarded-host");
+    const forwardedProto = req.headers.get("x-forwarded-proto");
     const url = new URL(req.url);
-    const baseUrl = `${url.protocol}//${url.host}`;
+    const baseUrl = forwardedHost
+      ? `${forwardedProto || url.protocol.replace(":", "")}://${forwardedHost}`
+      : `${url.protocol}//${url.host}`;
     return NextResponse.redirect(`${baseUrl}/?auth_error=callback_failed`);
   }
 }

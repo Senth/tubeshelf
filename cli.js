@@ -42,9 +42,6 @@ Examples:
   tubeshelf-cli oidc-status
   tubeshelf-cli oidc-toggle enable
       `);
-      process.exit(0);
-    }
-    `);
     process.exit(0);
   }
 
