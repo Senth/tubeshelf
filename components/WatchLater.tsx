@@ -15,7 +15,7 @@ interface WatchLaterProps {
   items: WatchLaterItem[];
   watchedVideos?: Set<string>;
   onRemove?: (id: string) => void;
-  onPlay?: (videoId: string) => void;
+  onPlay?: (item: WatchLaterItem) => void;
   onToggleWatched?: (videoId: string) => void;
   onShare?: (videoId: string) => void;
 }
@@ -69,7 +69,7 @@ export function WatchLater({
                   src={proxiedThumbnail}
                   alt={item.title}
                   className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
-                  onClick={() => onPlay?.(item.videoId)}
+                  onClick={() => onPlay?.(item)}
                 />
 
                 {isWatched && (
@@ -83,7 +83,7 @@ export function WatchLater({
               <div className="flex-1 min-w-0">
                 <h4
                   className="font-semibold text-sm line-clamp-2 text-foreground group-hover:text-primary transition-colors cursor-pointer"
-                  onClick={() => onPlay?.(item.videoId)}
+                  onClick={() => onPlay?.(item)}
                 >
                   {item.title}
                 </h4>

@@ -995,6 +995,35 @@ export default function Home() {
     });
   };
 
+  const handlePlayWatchLater = async (item: WatchLaterItem) => {
+    const videoUrl = `https://www.youtube.com/watch?v=${item.videoId}`;
+    if (settings?.videoPlayerMode !== "new-tab") {
+      try {
+        const res = await fetch(
+          `/api/playback-history?videoId=${encodeURIComponent(item.videoId)}`
+        );
+        const session = res.ok ? await res.json() : null;
+        const progress =
+          session && typeof session.progress === "number"
+            ? session.progress
+            : 0;
+        setInitialProgress(progress);
+      } catch {
+        setInitialProgress(0);
+      }
+      handlePlayInPlayer(
+        videoUrl,
+        item.videoId,
+        item.title,
+        item.channel,
+        undefined,
+        item.thumbnail
+      );
+    } else {
+      window.open(videoUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
   const handlePlayInPlayer = useCallback(
     (
       videoUrl: string,
@@ -1911,7 +1940,7 @@ export default function Home() {
                     items={watchLater}
                     watchedVideos={watchedVideos}
                     onRemove={handleRemoveFromWatchLater}
-                    onPlay={handleWatchVideo}
+                    onPlay={handlePlayWatchLater}
                     onToggleWatched={handleToggleWatched}
                     onShare={(videoId) => {
                       const url = `https://www.youtube.com/watch?v=${videoId}`;
@@ -1953,7 +1982,7 @@ export default function Home() {
                 items={watchLater}
                 watchedVideos={watchedVideos}
                 onRemove={handleRemoveFromWatchLater}
-                onPlay={handleWatchVideo}
+                onPlay={handlePlayWatchLater}
                 onToggleWatched={handleToggleWatched}
                 onShare={(videoId) => {
                   const url = `https://www.youtube.com/watch?v=${videoId}`;
