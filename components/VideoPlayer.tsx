@@ -10,6 +10,7 @@ import {
   Keyboard,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { getProxiedImageUrl } from "@/lib/videoUtils";
 
 // YouTube IFrame API types
 declare global {
@@ -671,7 +672,7 @@ const VideoPlayerComponent = ({
             >
               {channelThumbnail ? (
                 <img
-                  src={channelThumbnail}
+                  src={getProxiedImageUrl(channelThumbnail)}
                   alt={channelName}
                   className="w-10 h-10 rounded-full ring-2 ring-white/10 group-hover:ring-white/30 transition-all"
                 />

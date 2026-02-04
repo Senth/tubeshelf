@@ -122,3 +122,29 @@ export function getThemeIconUrl(
     window.matchMedia("(prefers-color-scheme: dark)").matches;
   return prefersDark ? "/icon-dark.svg" : "/icon-light.svg";
 }
+
+/**
+ * Proxy YouTube-hosted images to avoid browser ORB/CORS issues.
+ */
+export function getProxiedImageUrl(url?: string | null): string {
+  if (!url) return "";
+  if (
+    url.startsWith("data:") ||
+    url.startsWith("blob:") ||
+    url.startsWith("/api/image-proxy")
+  ) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    if (
+      host.endsWith("ytimg.com") ||
+      host.endsWith("youtube.com") ||
+      host.endsWith("yt3.googleusercontent.com")
+    ) {
+      return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+    }
+  } catch {}
+  return url;
+}

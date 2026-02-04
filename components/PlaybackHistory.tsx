@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Trash2, Play, History, AlertTriangle } from "lucide-react";
+import { getProxiedImageUrl } from "@/lib/videoUtils";
 import { Button } from "./ui/button";
 import type { PlaybackSession } from "@/lib/playbackHistoryStore";
 
@@ -159,6 +160,7 @@ export function PlaybackHistory({
           const thumbnailUrl =
             session.thumbnail ||
             `https://i.ytimg.com/vi/${session.videoId}/hqdefault.jpg`;
+          const proxiedThumbnailUrl = getProxiedImageUrl(thumbnailUrl);
 
           return (
             <div
@@ -170,7 +172,7 @@ export function PlaybackHistory({
                 <div className="flex-shrink-0 relative w-28 h-16 rounded-md overflow-hidden">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={thumbnailUrl}
+                    src={proxiedThumbnailUrl}
                     alt={session.videoTitle}
                     className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                     onClick={() =>

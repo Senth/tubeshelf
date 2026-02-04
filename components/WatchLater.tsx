@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Bookmark, Trash2, Eye, Share2, Check, Clock } from "lucide-react";
+import { getProxiedImageUrl } from "@/lib/videoUtils";
 
 interface WatchLaterItem {
   id: string;
@@ -52,6 +53,7 @@ export function WatchLater({
         const isWatched = watchedVideos?.has(item.videoId);
         const addedDate = new Date(item.addedAt);
         const timeAgo = getTimeAgo(addedDate);
+        const proxiedThumbnail = getProxiedImageUrl(item.thumbnail);
 
         return (
           <div
@@ -64,7 +66,7 @@ export function WatchLater({
               <div className="relative w-28 h-16 flex-shrink-0 rounded-md overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={item.thumbnail}
+                  src={proxiedThumbnail}
                   alt={item.title}
                   className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                   onClick={() => onPlay?.(item.videoId)}
