@@ -61,6 +61,8 @@ async function main() {
         readFileSync(resolve(dir, ".next/required-server-files.json")), "utf8"
       ),
       minimalMode: true,
+      dev: false,
+      customServer: false,
     });
 
     const handle = nextServer.getRequestHandler();
@@ -152,6 +154,8 @@ async function main() {
         readFileSync(resolve(dir, ".next/required-server-files.json")), "utf8"
       ),
       minimalMode: true,
+      dev: false,
+      customServer: false,
     });
 
     const handle = nextServer.getRequestHandler();
