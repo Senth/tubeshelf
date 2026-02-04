@@ -15,6 +15,7 @@ import { Input } from "./ui/input";
 
 interface Subscription {
   id: string;
+  channelId: string;
   title: string;
   thumbnail?: string;
   url: string;
@@ -467,7 +468,7 @@ export function SubscriptionManager({
               )
               .map((sub) => (
                 <div
-                  key={sub.id}
+                  key={sub.channelId || sub.id}
                   className="group bg-card border border-border rounded-lg p-3 hover:border-primary/50 hover:shadow-md transition-all duration-200 flex items-center gap-3"
                 >
                   {/* Thumbnail */}
@@ -532,7 +533,9 @@ export function SubscriptionManager({
                         <button
                           onClick={() =>
                             setMovingSubId(
-                              movingSubId === sub.id ? null : sub.id
+                              movingSubId === sub.channelId
+                                ? null
+                                : sub.channelId
                             )
                           }
                           className="p-2 rounded-md hover:bg-primary/10 transition-colors"
@@ -540,7 +543,7 @@ export function SubscriptionManager({
                         >
                           <FolderPlus className="w-4 h-4 text-primary" />
                         </button>
-                        {movingSubId === sub.id && (
+                        {movingSubId === sub.channelId && (
                           <div className="absolute right-0 bottom-full mb-2 w-48 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
                             <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border bg-secondary/30">
                               Move to list
@@ -550,7 +553,9 @@ export function SubscriptionManager({
                               .map((list) => (
                                 <button
                                   key={list.id}
-                                  onClick={() => handleMove(sub.id, list.id)}
+                                  onClick={() =>
+                                    handleMove(sub.channelId, list.id)
+                                  }
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors"
                                 >
                                   {list.name}
@@ -562,7 +567,7 @@ export function SubscriptionManager({
                     )}
 
                     <button
-                      onClick={() => onRemove?.(sub.id)}
+                      onClick={() => onRemove?.(sub.channelId)}
                       className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
                       title="Remove subscription"
                     >

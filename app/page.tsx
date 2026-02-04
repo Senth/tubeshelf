@@ -29,6 +29,7 @@ import {
   KeyRound,
   Users,
   AlertTriangle,
+  ArrowUp,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { feedManager } from "@/lib/feedManager";
@@ -118,6 +119,7 @@ export default function Home() {
   >([]);
   const [currentListId, setCurrentListId] = useState<string>("default");
   const [filterListId, setFilterListId] = useState<string>("all");
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [showLoadingProgress, setShowLoadingProgress] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -449,6 +451,16 @@ export default function Home() {
   useEffect(() => {
     setHighlightedVideoIndex(null);
   }, [filteredVideos]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const refreshData = async (forceRefresh = false) => {
     setError(null);
@@ -2151,6 +2163,25 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* Scroll to top */}
+      {currentPage === "home" && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          title="Back to top"
+          aria-label="Back to top"
+          className={`fixed bottom-6 right-6 z-50 rounded-full border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-card ${
+            showScrollTop
+              ? "opacity-100"
+              : "pointer-events-none translate-y-2 opacity-0"
+          }`}
+        >
+          <ClientOnly>
+            <ArrowUp className="h-5 w-5 text-foreground" />
+          </ClientOnly>
+        </button>
+      )}
 
       {/* Welcome Wizard */}
       {showWelcomeWizard && (
