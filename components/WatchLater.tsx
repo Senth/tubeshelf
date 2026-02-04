@@ -18,6 +18,7 @@ interface WatchLaterProps {
   onPlay?: (item: WatchLaterItem) => void;
   onToggleWatched?: (videoId: string) => void;
   onShare?: (videoId: string) => void;
+  onThumbnailError?: (item: WatchLaterItem) => void;
 }
 
 export function WatchLater({
@@ -70,6 +71,15 @@ export function WatchLater({
                   alt={item.title}
                   className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                   onClick={() => onPlay?.(item)}
+                  onError={(e) => {
+                    const fallback = getProxiedImageUrl(
+                      `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`
+                    );
+                    if (e.currentTarget.src !== fallback) {
+                      e.currentTarget.src = fallback;
+                      onThumbnailError?.(item);
+                    }
+                  }}
                 />
 
                 {isWatched && (

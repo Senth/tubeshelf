@@ -1202,6 +1202,23 @@ export default function Home() {
     }
   };
 
+  const handleWatchLaterThumbnailError = (item: WatchLaterItem) => {
+    const fallbackThumbnail = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+    if (!item.thumbnail || item.thumbnail === fallbackThumbnail) {
+      return;
+    }
+
+    const updated = watchLater.map((w) =>
+      w.id === item.id ? { ...w, thumbnail: fallbackThumbnail } : w
+    );
+
+    setWatchLater(updated);
+    persistUserState({ watchLater: updated }).catch(() => {
+      // If the persist fails, keep UI consistent with in-memory state
+      setWatchLater(updated);
+    });
+  };
+
   const handleWelcomeWizardComplete = async (options: WelcomeOptions) => {
     try {
       // Mark welcome as completed in the database FIRST (before any other operations)
@@ -1942,6 +1959,7 @@ export default function Home() {
                     onRemove={handleRemoveFromWatchLater}
                     onPlay={handlePlayWatchLater}
                     onToggleWatched={handleToggleWatched}
+                    onThumbnailError={handleWatchLaterThumbnailError}
                     onShare={(videoId) => {
                       const url = `https://www.youtube.com/watch?v=${videoId}`;
                       navigator.clipboard.writeText(url).catch(() => {});
@@ -1984,6 +2002,7 @@ export default function Home() {
                 onRemove={handleRemoveFromWatchLater}
                 onPlay={handlePlayWatchLater}
                 onToggleWatched={handleToggleWatched}
+                onThumbnailError={handleWatchLaterThumbnailError}
                 onShare={(videoId) => {
                   const url = `https://www.youtube.com/watch?v=${videoId}`;
                   navigator.clipboard.writeText(url).catch(() => {});
