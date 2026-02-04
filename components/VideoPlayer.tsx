@@ -57,6 +57,7 @@ const VideoPlayerComponent = ({
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [playerReady, setPlayerReady] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
   const shortcutsRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -131,16 +132,19 @@ const VideoPlayerComponent = ({
 
   // Track playback progress and report to parent
   useEffect(() => {
-    if (!playerReady || !playerRef.current || !onProgress) return;
+    if (!playerReady || !playerRef.current) return;
 
     const interval = setInterval(() => {
       try {
         const player = playerRef.current;
         if (player && player.getCurrentTime && player.getDuration) {
-          const currentTime = player.getCurrentTime();
+          const time = player.getCurrentTime();
           const duration = player.getDuration();
+          if (Number.isFinite(time)) {
+            setCurrentTime(Math.floor(time));
+          }
           if (duration > 0) {
-            onProgress(currentTime, duration);
+            onProgress?.(time, duration);
           }
         }
       } catch (err) {
@@ -150,6 +154,20 @@ const VideoPlayerComponent = ({
 
     return () => clearInterval(interval);
   }, [playerReady, onProgress]);
+
+  const youtubeUrlWithTimestamp = (() => {
+    try {
+      const url = new URL(videoUrl);
+      if (currentTime > 0) {
+        url.searchParams.set("t", `${currentTime}`);
+      } else {
+        url.searchParams.delete("t");
+      }
+      return url.toString();
+    } catch {
+      return videoUrl;
+    }
+  })();
 
   // YouTube keyboard shortcuts - works even when iframe isn't focused
   useEffect(() => {
@@ -630,7 +648,7 @@ const VideoPlayerComponent = ({
               </div>
 
               <a
-                href={videoUrl}
+                href={youtubeUrlWithTimestamp}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
