@@ -36,9 +36,9 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy lib folder (needed for CLI commands)
 COPY --from=builder /app/lib ./lib
 
-# Copy CLI and server scripts
+# Copy CLI script (keep standalone server.js from Next build)
 COPY --from=builder /app/cli.js ./
-COPY server.js ./
+COPY server.js ./server.custom.js
 COPY cli ./
 COPY entrypoint.sh ./
 
