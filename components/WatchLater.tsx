@@ -28,6 +28,7 @@ export function WatchLater({
   onPlay,
   onToggleWatched,
   onShare,
+  onThumbnailError,
 }: WatchLaterProps) {
   const [copiedVideoId, setCopiedVideoId] = useState<string | null>(null);
 
