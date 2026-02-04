@@ -46,14 +46,16 @@ async function main() {
     }
     // Start the Next.js server
     const { createServer } = await import("http");
-    const { NextServer } = await import("next/dist/server/next.js");
+    const { default: createNextServer } = await import(
+      "next/dist/server/next.js"
+    );
     const { readFileSync } = await import("fs");
     const { resolve } = await import("path");
 
     const dir = process.cwd();
     const isDev = false;
 
-    const nextServer = new NextServer({
+    const nextServer = createNextServer({
       dir,
       conf: JSON.parse(
         readFileSync(resolve(dir, ".next/required-server-files.json")), "utf8"
@@ -136,13 +138,15 @@ async function main() {
     console.log("Starting server instead...\n");
 
     const { createServer } = await import("http");
-    const { NextServer } = await import("next/dist/server/next.js");
+    const { default: createNextServer } = await import(
+      "next/dist/server/next.js"
+    );
     const { readFileSync } = await import("fs");
     const { resolve } = await import("path");
 
     const dir = process.cwd();
 
-    const nextServer = new NextServer({
+    const nextServer = createNextServer({
       dir,
       conf: JSON.parse(
         readFileSync(resolve(dir, ".next/required-server-files.json")), "utf8"
