@@ -86,6 +86,28 @@ export function VideoCard({
   const [showSkeleton, setShowSkeleton] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const thumbnailSrc = (() => {
+    if (!thumbnail) return thumbnail;
+    if (
+      thumbnail.startsWith("data:") ||
+      thumbnail.startsWith("blob:") ||
+      thumbnail.startsWith("/api/image-proxy")
+    ) {
+      return thumbnail;
+    }
+    try {
+      const url = new URL(thumbnail);
+      const host = url.hostname;
+      if (
+        host.endsWith("ytimg.com") ||
+        host.endsWith("youtube.com") ||
+        host.endsWith("yt3.googleusercontent.com")
+      ) {
+        return `/api/image-proxy?url=${encodeURIComponent(thumbnail)}`;
+      }
+    } catch {}
+    return thumbnail;
+  })();
 
   const handleWatch = (e: React.MouseEvent<HTMLAnchorElement>) => {
     // Prevent the default link behavior
@@ -205,7 +227,7 @@ export function VideoCard({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imgRef}
-          src={thumbnail}
+          src={thumbnailSrc}
           alt=""
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           draggable="false"
