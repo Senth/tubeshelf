@@ -24,23 +24,41 @@ export async function GET(req: Request) {
       );
     }
 
-    // Fetch the image from the URL with proper headers
-    const response = await fetch(imageUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-      cache: "force-cache",
-    });
+    const candidateUrls = [imageUrl];
+    const customThumbMatch = imageUrl.match(
+      /(https?:\/\/[^/]+\/vi\/[^/]+)\/hqdefault_custom_\d\.jpg/i
+    );
+    if (customThumbMatch) {
+      candidateUrls.push(
+        `${customThumbMatch[1]}/hqdefault.jpg`,
+        `${customThumbMatch[1]}/mqdefault.jpg`,
+        `${customThumbMatch[1]}/default.jpg`
+      );
+    }
 
-    if (!response.ok) {
+    let response: Response | null = null;
+    for (const url of candidateUrls) {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        cache: "force-cache",
+      });
+      if (res.ok) {
+        response = res;
+        break;
+      }
+    }
+
+    if (!response) {
       console.error("[Image Proxy] Failed to fetch image:", {
-        status: response.status,
+        status: 404,
         url: imageUrl,
       });
       return NextResponse.json(
         { error: "Failed to fetch image" },
-        { status: response.status }
+        { status: 404 }
       );
     }
 
