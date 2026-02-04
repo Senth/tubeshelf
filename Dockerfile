@@ -23,9 +23,6 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Update npm to latest version to fix glob vulnerability
-RUN npm install -g npm@latest
-
 # Install dumb-init and su-exec for privilege dropping
 RUN apk add --no-cache dumb-init su-exec && \
     rm -rf /var/cache/apk/*
@@ -47,6 +44,10 @@ COPY entrypoint.sh ./
 
 # Make scripts executable
 RUN chmod +x ./cli.js ./server.js ./cli ./entrypoint.sh
+
+# Remove npm to avoid shipping known vulnerabilities in the runtime image
+# (runtime doesn't need npm or npx)
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Create symlink for easy CLI access
 RUN ln -s /app/cli /usr/local/bin/cli
