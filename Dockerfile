@@ -3,9 +3,6 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Update npm to latest version to fix glob vulnerability
-RUN npm install -g npm@latest
-
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
 
@@ -23,22 +20,20 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Install dumb-init and su-exec for privilege dropping
-RUN apk add --no-cache dumb-init su-exec && \
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init && \
     rm -rf /var/cache/apk/*
 
 # Copy only necessary built files from builder (standalone includes everything needed)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
 
 # Copy lib folder (needed for CLI commands)
 COPY --from=builder /app/lib ./lib
 
 # Copy CLI script (keep standalone server.js from Next build)
 COPY --from=builder /app/cli.js ./
-COPY server.js ./server.custom.js
 COPY cli ./
 COPY entrypoint.sh ./
 
@@ -52,9 +47,9 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 # Create symlink for easy CLI access
 RUN ln -s /app/cli /usr/local/bin/cli
 
-# Create required dirs and ensure non-root can write
+# Create required writable dirs for non-root runtime user
 RUN mkdir -p /app/data /app/.next/cache && \
-    chown -R 1000:1000 /app
+    chown 1000:1000 /app/data /app/.next/cache
 
 # Expose port
 EXPOSE 3000
