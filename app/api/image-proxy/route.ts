@@ -1,84 +1,63 @@
 import { NextResponse } from "next/server";
 
+function isAllowedImageHost(hostname: string): boolean {
+  return (
+    hostname.endsWith("ytimg.com") ||
+    hostname.endsWith("youtube.com") ||
+    hostname.endsWith("yt3.googleusercontent.com") ||
+    hostname.endsWith("googleusercontent.com")
+  );
+}
+
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const imageUrl = url.searchParams.get("url");
-
-  if (!imageUrl) {
-    return NextResponse.json(
-      { error: "Missing url parameter" },
-      { status: 400 }
-    );
-  }
-
   try {
-    // Validate that the URL is from YouTube's CDN
-    if (
-      !imageUrl.includes("yt3.googleusercontent.com") &&
-      !imageUrl.includes("ytimg.com") &&
-      !imageUrl.includes("youtube.com")
-    ) {
-      return NextResponse.json(
-        { error: "Only YouTube images are allowed" },
-        { status: 403 }
-      );
+    const { searchParams } = new URL(req.url);
+    const urlParam = searchParams.get("url");
+
+    if (!urlParam) {
+      return NextResponse.json({ error: "url is required" }, { status: 400 });
     }
 
-    const candidateUrls = [imageUrl];
-    const customThumbMatch = imageUrl.match(
-      /(https?:\/\/[^/]+\/vi\/[^/]+)\/hqdefault_custom_\d\.jpg/i
-    );
-    if (customThumbMatch) {
-      candidateUrls.push(
-        `${customThumbMatch[1]}/hqdefault.jpg`,
-        `${customThumbMatch[1]}/mqdefault.jpg`,
-        `${customThumbMatch[1]}/default.jpg`
-      );
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(urlParam);
+    } catch {
+      return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
     }
 
-    let response: Response | null = null;
-    for (const url of candidateUrls) {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-        cache: "force-cache",
-      });
-      if (res.ok) {
-        response = res;
-        break;
-      }
+    if (!isAllowedImageHost(targetUrl.hostname)) {
+      return NextResponse.json({ error: "Host not allowed" }, { status: 403 });
     }
 
-    if (!response) {
-      console.error("[Image Proxy] Failed to fetch image:", {
-        status: 404,
-        url: imageUrl,
-      });
-      return NextResponse.json(
-        { error: "Failed to fetch image" },
-        { status: 404 }
-      );
-    }
-
-    // Get the image buffer and content type
-    const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get("content-type") || "image/jpeg";
-
-    // Return the image with proper headers to allow browser caching
-    return new NextResponse(buffer, {
+    const upstream = await fetch(targetUrl.toString(), {
       headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=31536000", // Cache for 1 year
-        "Access-Control-Allow-Origin": "*",
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "accept-language": "en-US,en;q=0.8",
+      },
+      cache: "force-cache",
+    });
+
+    if (!upstream.ok) {
+      return NextResponse.json(
+        { error: `Upstream image request failed with status ${upstream.status}` },
+        { status: 502 }
+      );
+    }
+
+    const contentType =
+      upstream.headers.get("content-type") || "image/jpeg";
+    const buffer = await upstream.arrayBuffer();
+
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        "content-type": contentType,
+        "cache-control": "public, max-age=3600, s-maxage=3600",
       },
     });
-  } catch (err) {
-    console.error("[Image Proxy] Error fetching image:", {
-      error: err instanceof Error ? err.message : String(err),
-      url: imageUrl,
-    });
+  } catch (error) {
+    console.error("[Image Proxy] Failed:", error);
     return NextResponse.json(
       { error: "Failed to proxy image" },
       { status: 500 }

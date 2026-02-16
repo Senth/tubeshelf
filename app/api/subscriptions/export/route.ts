@@ -1,98 +1,72 @@
-import { cookies } from "next/headers";
 import { readLists } from "@/lib/subscriptionListStore";
-import { getUserFromSession } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/currentUser";
 
-function escapeXml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+function asOpml(items: Array<{ title: string; channelId: string; url: string }>) {
+  const outlines = items
+    .map((item) => {
+      const escapedTitle = item.title
+        .replaceAll("&", "&amp;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+      const xmlUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${item.channelId}`;
+      return `    <outline text=\"${escapedTitle}\" title=\"${escapedTitle}\" type=\"rss\" xmlUrl=\"${xmlUrl}\" htmlUrl=\"${item.url}\" />`;
+    })
+    .join("\n");
+
+  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n  <head>\n    <title>TubeShelf Subscriptions</title>\n  </head>\n  <body>\n${outlines}\n  </body>\n</opml>\n`;
 }
 
 export async function GET(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
-    return new Response("Unauthorized", { status: 401 });
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const { searchParams } = new URL(req.url);
-  const format = searchParams.get("format") || "opml";
-  const listId = searchParams.get("listId") || "all";
+  const format = (searchParams.get("format") || "opml").toLowerCase();
+  const listId = (searchParams.get("listId") || "all").trim();
 
   const listsData = await readLists(user.id);
-  let subs: any[] = [];
+  const targetLists =
+    listId === "all"
+      ? listsData.lists
+      : listsData.lists.filter((list) => list.id === listId);
 
-  // Get subscriptions from specified list or all lists
-  if (listId === "all") {
-    // Aggregate all unique subscriptions from all lists
-    const uniqueSubs = new Map();
-    listsData.lists.forEach((list) => {
-      list.subscriptions.forEach((sub) => {
-        if (!uniqueSubs.has(sub.channelId)) {
-          uniqueSubs.set(sub.channelId, sub);
-        }
-      });
-    });
-    subs = Array.from(uniqueSubs.values());
-  } else {
-    const list = listsData.lists.find((l) => l.id === listId);
-    if (list) {
-      subs = list.subscriptions;
+  const channelMap = new Map<string, { title: string; channelId: string; url: string }>();
+  for (const list of targetLists) {
+    for (const sub of list.subscriptions) {
+      if (!channelMap.has(sub.channelId)) {
+        channelMap.set(sub.channelId, {
+          title: sub.title,
+          channelId: sub.channelId,
+          url: sub.url,
+        });
+      }
     }
   }
 
-  // JSON export (Invidious format)
-  if (format === "json") {
-    const json = {
-      subscriptions: subs.map((sub) => sub.channelId),
-      watch_history: [],
-      preferences: {},
-      playlists: [],
-    };
+  const items = [...channelMap.values()];
 
-    return new Response(JSON.stringify(json, null, 2), {
+  if (format === "json") {
+    return new Response(JSON.stringify(items, null, 2), {
       status: 200,
       headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition":
-          "attachment; filename=TubeShelf-Subscriptions.json",
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
       },
     });
   }
 
-  // OPML export (default)
-  const now = new Date().toISOString();
-  const outlines = subs
-    .map((sub) => {
-      const title = escapeXml(sub.title || sub.channelId);
-      const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(
-        sub.channelId
-      )}`;
-      return `<outline text="${title}" title="${title}" type="rss" xmlUrl="${url}" />`;
-    })
-    .join("\n    ");
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<opml version="2.0">
-  <head>
-    <title>TubeShelf Subscriptions</title>
-    <dateCreated>${now}</dateCreated>
-  </head>
-  <body>
-    ${outlines}
-  </body>
-</opml>`;
-
-  return new Response(xml, {
+  const opml = asOpml(items);
+  return new Response(opml, {
     status: 200,
     headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Content-Disposition":
-        "attachment; filename=TubeShelf-Subscriptions.opml",
+      "content-type": "application/xml; charset=utf-8",
+      "cache-control": "no-store",
     },
   });
 }

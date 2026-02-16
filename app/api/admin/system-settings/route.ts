@@ -1,90 +1,56 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/currentUser";
+import { getCurrentUser } from "@/lib/currentUser";
 import { readSettings, writeSettings } from "@/lib/settingsStore";
 import { getOIDCProviders } from "@/lib/oidc";
 
 export async function GET() {
-  try {
-    await requireAdmin();
-
-    const settings = await readSettings();
-
-    return NextResponse.json({
-      oidcOnly: settings.oidcOnly || false,
-      publicRegistration: settings.publicRegistration || false,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "Authentication required") {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (
-      error instanceof Error &&
-      error.message === "Admin privileges required"
-    ) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
-
-    console.error("[Admin] Failed to get system settings:", error);
-    return NextResponse.json(
-      { error: "Failed to get settings" },
-      { status: 500 }
-    );
+  const user = await getCurrentUser();
+  if (!user || !user.isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const settings = await readSettings();
+  return NextResponse.json({
+    oidcOnly: !!settings.oidcOnly,
+    publicRegistration: !!settings.publicRegistration,
+  });
 }
 
 export async function POST(req: Request) {
-  try {
-    await requireAdmin();
+  const user = await getCurrentUser();
+  if (!user || !user.isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-    const body = await req.json();
-    const { oidcOnly, publicRegistration } = body;
+  const body = await req.json().catch(() => null);
+  const updates: Record<string, boolean> = {};
 
-    // Validation: if enabling OIDC-only mode, ensure OIDC is configured
-    if (oidcOnly) {
-      const oidcProviders = getOIDCProviders();
-      const hasEnabledProvider = oidcProviders.some((p) => p.enabled);
-
-      if (!hasEnabledProvider) {
-        return NextResponse.json(
-          {
-            error:
-              "Cannot enable OIDC-only mode without an enabled OIDC provider",
-          },
-          { status: 400 }
-        );
-      }
+  if (typeof body?.oidcOnly === "boolean") {
+    if (body.oidcOnly && getOIDCProviders().length === 0) {
+      return NextResponse.json(
+        { error: "Cannot enable OIDC-only mode without an enabled OIDC provider" },
+        { status: 400 }
+      );
     }
+    updates.oidcOnly = body.oidcOnly;
+  }
 
-    const settings = await readSettings();
-    const updatedSettings = {
-      ...settings,
-      // Only update if explicitly provided (not undefined)
-      ...(oidcOnly !== undefined && { oidcOnly }),
-      ...(publicRegistration !== undefined && { publicRegistration }),
-    };
+  if (typeof body?.publicRegistration === "boolean") {
+    updates.publicRegistration = body.publicRegistration;
+  }
 
-    await writeSettings(updatedSettings);
-
-    return NextResponse.json({
-      success: true,
-      oidcOnly: updatedSettings.oidcOnly,
-      publicRegistration: updatedSettings.publicRegistration,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "Authentication required") {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (
-      error instanceof Error &&
-      error.message === "Admin privileges required"
-    ) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
-
-    console.error("[Admin] Failed to update system settings:", error);
+  if (Object.keys(updates).length === 0) {
     return NextResponse.json(
-      { error: "Failed to update settings" },
-      { status: 500 }
+      { error: "No valid settings provided" },
+      { status: 400 }
     );
   }
+
+  await writeSettings(updates);
+  const settings = await readSettings();
+
+  return NextResponse.json({
+    oidcOnly: !!settings.oidcOnly,
+    publicRegistration: !!settings.publicRegistration,
+  });
 }

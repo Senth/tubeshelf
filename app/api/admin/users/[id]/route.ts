@@ -1,113 +1,103 @@
-import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/currentUser";
+import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/currentUser";
 import {
-  updateUserAdminStatus,
-  deleteUser,
-  countAdminUsers,
   getUserById,
+  updateUserAdminStatus,
+  deleteUser as deleteManagedUser,
+  countAdminUsers,
 } from "@/lib/users";
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const currentUser = await requireAdmin();
-    if (!currentUser) {
-      return NextResponse.json(
-        { error: "Admin privileges required" },
-        { status: 403 }
-      );
-    }
-
-    const { id: userId } = await params;
-    const body = await request.json();
-    const { isAdmin } = body;
-
-    // Prevent removing admin from the default admin user
-    if (!isAdmin) {
-      const userToUpdate = getUserById(userId);
-      if (userToUpdate?.isDefaultAdmin) {
-        return NextResponse.json(
-          {
-            error: "Cannot remove admin privileges from the default admin user",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Prevent removing admin from yourself if you're the last admin
-    if (userId === currentUser.id && !isAdmin) {
-      const adminCount = countAdminUsers();
-      if (adminCount <= 1) {
-        return NextResponse.json(
-          { error: "Cannot remove admin privileges from the last admin user" },
-          { status: 400 }
-        );
-      }
-    }
-
-    const success = updateUserAdminStatus(userId, isAdmin);
-
-    if (!success) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[Admin Users] Update error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to update user" },
-      { status: 500 }
-    );
-  }
+interface Params {
+  params: Promise<{ id: string }>;
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const currentUser = await requireAdmin();
-    if (!currentUser) {
-      return NextResponse.json(
-        { error: "Admin privileges required" },
-        { status: 403 }
-      );
-    }
+export async function PATCH(req: Request, { params }: Params) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !currentUser.isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-    const { id: userId } = await params;
+  const { id } = await params;
+  const target = getUserById(id);
 
-    // Prevent deleting yourself
-    if (userId === currentUser.id) {
-      return NextResponse.json(
-        { error: "Cannot delete your own account" },
-        { status: 400 }
-      );
-    }
+  if (!target) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
 
-    // Prevent deleting the default admin
-    const userToDelete = getUserById(userId);
-    if (userToDelete?.isDefaultAdmin) {
-      return NextResponse.json(
-        { error: "Cannot delete the default admin user" },
-        { status: 400 }
-      );
-    }
-
-    const success = deleteUser(userId);
-
-    if (!success) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[Admin Users] Delete error:", error);
+  const body = await req.json().catch(() => null);
+  if (typeof body?.isAdmin !== "boolean") {
     return NextResponse.json(
-      { error: error.message || "Failed to delete user" },
+      { error: "isAdmin boolean is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!body.isAdmin && target.isDefaultAdmin) {
+    return NextResponse.json(
+      { error: "Cannot demote default admin" },
+      { status: 400 }
+    );
+  }
+
+  if (!body.isAdmin && target.isAdmin && countAdminUsers() <= 1) {
+    return NextResponse.json(
+      { error: "Cannot remove the last admin" },
+      { status: 400 }
+    );
+  }
+
+  const ok = updateUserAdminStatus(id, body.isAdmin);
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Failed to update user" },
       { status: 500 }
     );
   }
+
+  return NextResponse.json({ success: true });
+}
+
+export async function DELETE(_req: Request, { params }: Params) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !currentUser.isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await params;
+  const target = getUserById(id);
+
+  if (!target) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  if (id === currentUser.id) {
+    return NextResponse.json(
+      { error: "You cannot delete your own account here" },
+      { status: 400 }
+    );
+  }
+
+  if (target.isDefaultAdmin) {
+    return NextResponse.json(
+      { error: "Cannot delete default admin" },
+      { status: 400 }
+    );
+  }
+
+  if (target.isAdmin && countAdminUsers() <= 1) {
+    return NextResponse.json(
+      { error: "Cannot delete the last admin" },
+      { status: 400 }
+    );
+  }
+
+  const deleted = deleteManagedUser(id);
+  if (!deleted) {
+    return NextResponse.json(
+      { error: "Failed to delete user" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ success: true });
 }
