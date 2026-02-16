@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dashboard",
+  "packageRules": [
+    {
+      "description": "Automerge minor/patch/pin/digest updates directly on branch",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "description": "Keep majors in PRs (no automerge)",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "major": {
+    "dependencyDashboardApproval": true
+  }
+}
