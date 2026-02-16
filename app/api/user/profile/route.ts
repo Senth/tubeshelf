@@ -1,64 +1,61 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/currentUser";
-import { updateUser, getUserByEmail, getUserById } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/currentUser";
+import { getUserByEmail, updateUser } from "@/lib/auth";
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return NextResponse.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    authType: user.authType,
+    oidcProvider: user.oidcProvider,
+  });
+}
 
 export async function PUT(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (user.authType === "oidc") {
+    return NextResponse.json(
+      { error: "OIDC-managed users cannot edit local profile" },
+      { status: 403 }
+    );
+  }
+
+  const body = await req.json().catch(() => null);
+  const name = typeof body?.name === "string" ? body.name.trim() : user.name;
+  const email =
+    typeof body?.email === "string" ? body.email.trim().toLowerCase() : user.email;
+
+  if (!email || !isValidEmail(email)) {
+    return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+  }
+
+  const existing = getUserByEmail(email);
+  if (existing && existing.id !== user.id) {
+    return NextResponse.json(
+      { error: "Email already in use" },
+      { status: 409 }
+    );
+  }
+
   try {
-    const user = await requireAuth();
-
-    const body = await req.json();
-    const { name, email } = body;
-
-    // Validate input
-    if (!name && !email) {
-      return NextResponse.json(
-        { error: "At least one field must be provided" },
-        { status: 400 }
-      );
-    }
-
-    if (email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return NextResponse.json(
-          { error: "Invalid email address" },
-          { status: 400 }
-        );
-      }
-
-      // Check if email is already taken by another user
-      const existingUser = getUserByEmail(email);
-      if (existingUser && existingUser.id !== user.id) {
-        return NextResponse.json(
-          { error: "Email address is already in use" },
-          { status: 409 }
-        );
-      }
-    }
-
-    // Update user profile
-    updateUser(user.id, {
-      ...(name !== undefined && { name }),
-      ...(email !== undefined && { email }),
-    });
-
-    // Return updated user info
-    const updatedUser = getUserById(user.id);
-
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: updatedUser?.id,
-        email: updatedUser?.email,
-        name: updatedUser?.name,
-      },
-    });
+    updateUser(user.id, { name, email });
+    return NextResponse.json({ success: true, name, email });
   } catch (error) {
-    if (error instanceof Error && error.message === "Authentication required") {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-
-    console.error("[User Profile] Failed to update profile:", error);
+    console.error("[User] Failed to update profile:", error);
     return NextResponse.json(
       { error: "Failed to update profile" },
       { status: 500 }

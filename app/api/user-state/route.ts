@@ -28,22 +28,54 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
+  // Merge partial updates with current persisted state to avoid accidental data loss.
+  const current = await readUserState(user.id);
+  const nextHasCompletedWelcome =
+    body.hasCompletedWelcome === true || body.hasCompletedWelcome === "true"
+      ? true
+      : body.hasCompletedWelcome === false ||
+        body.hasCompletedWelcome === "false"
+      ? false
+      : !!current.hasCompletedWelcome;
+
+  const nextWatchedVideos: string[] = Array.isArray(body.watchedVideos)
+    ? Array.from(
+        new Set(
+          (body.watchedVideos as unknown[]).filter(
+            (id: unknown): id is string => typeof id === "string"
+          )
+        )
+      )
+    : current.watchedVideos;
+
   const state: UserState = {
-    watchedVideos: Array.isArray(body.watchedVideos) ? body.watchedVideos : [],
+    watchedVideos: nextWatchedVideos,
     hideWatched:
-      typeof body.hideWatched === "boolean" ? body.hideWatched : false,
+      typeof body.hideWatched === "boolean"
+        ? body.hideWatched
+        : !!current.hideWatched,
     hideMemberOnly:
-      typeof body.hideMemberOnly === "boolean" ? body.hideMemberOnly : false,
+      typeof body.hideMemberOnly === "boolean"
+        ? body.hideMemberOnly
+        : !!current.hideMemberOnly,
     filterListId:
       typeof body.filterListId === "string" && body.filterListId.length > 0
         ? body.filterListId
-        : "all",
-    hasCompletedWelcome:
-      body.hasCompletedWelcome === true || body.hasCompletedWelcome === "true"
-        ? true
-        : false,
-    watchLater: Array.isArray(body.watchLater) ? body.watchLater : [],
+        : current.filterListId ?? "all",
+    hasCompletedWelcome: nextHasCompletedWelcome,
+    watchLater: Array.isArray(body.watchLater)
+      ? body.watchLater
+      : current.watchLater ?? [],
   };
+
+  if (state.watchedVideos.length + 10 < current.watchedVideos.length) {
+    console.warn("[UserState] Large watchedVideos decrease detected", {
+      userId: user.id,
+      before: current.watchedVideos.length,
+      after: state.watchedVideos.length,
+      bodyKeys: Object.keys(body),
+    });
+  }
 
   await writeUserState(state, user.id);
   return NextResponse.json(state);

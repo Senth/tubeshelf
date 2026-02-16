@@ -103,6 +103,7 @@ export default function Home() {
   const errorRef = useRef<string | null>(null);
   const [watchLater, setWatchLater] = useState<WatchLaterItem[]>([]);
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
+  const watchedVideosRef = useRef<Set<string>>(new Set());
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -158,6 +159,7 @@ export default function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const closingPlayerRef = useRef(false);
   const settingsPreloadRef = useRef(false);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Preload settings eagerly
   const preloadSettings = useCallback(async () => {
@@ -498,7 +500,15 @@ export default function Home() {
       const res = await fetch("/api/user-state", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setWatchedVideos(new Set(data.watchedVideos || []));
+        const watchedSet = new Set<string>(
+          Array.isArray(data.watchedVideos)
+            ? data.watchedVideos.filter(
+                (id: unknown): id is string => typeof id === "string"
+              )
+            : []
+        );
+        watchedVideosRef.current = watchedSet;
+        setWatchedVideos(watchedSet);
         setHideWatched(data.hideWatched || false);
         setHideMemberOnly(data.hideMemberOnly || false);
         if (typeof data.filterListId === "string") {
@@ -795,9 +805,8 @@ export default function Home() {
     subscriptionLists,
   ]);
 
-  // Helper function to persist user state in background
-  // ALWAYS reads current state from database first to ensure we don't overwrite with stale React state
-  // This is critical to preserve values like hasCompletedWelcome when making partial updates
+  // Helper function to persist user state in background.
+  // Writes are serialized to avoid races between rapid updates.
   const persistUserState = async (
     updates: Partial<{
       watchedVideos: string[];
@@ -808,47 +817,26 @@ export default function Home() {
       hasCompletedWelcome: boolean;
     }>
   ) => {
-    // ALWAYS read current state from database first to preserve existing values
-    // This prevents overwriting values like hasCompletedWelcome when making partial updates
-    let currentStateFromDb: any = null;
-    try {
-      const dbRes = await fetch("/api/user-state", { credentials: "include" });
-      if (dbRes.ok) {
-        currentStateFromDb = await dbRes.json();
-      }
-    } catch (e) {
-      console.error("[persistUserState] Failed to read current state from database:", e);
-    }
+    const runPersist = async () => {
+      const res = await fetch("/api/user-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(updates),
+      });
 
-    // Build current state - ALWAYS use database state if available to preserve existing values
-    // Only fall back to React state if database read failed
-    const currentState = currentStateFromDb || {
-      watchedVideos: Array.from(watchedVideos),
-      hideWatched,
-      hideMemberOnly,
-      filterListId,
-      watchLater,
-      hasCompletedWelcome,
+      if (!res.ok) {
+        throw new Error("Failed to save user state");
+      }
+
+      if (updates.hasCompletedWelcome !== undefined) {
+        setHasCompletedWelcome(updates.hasCompletedWelcome);
+      }
     };
 
-    // Merge updates into current state (updates override current state)
-    const newState = { ...currentState, ...updates };
-
-    const res = await fetch("/api/user-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(newState),
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to save user state");
-    }
-
-    // Update local state if hasCompletedWelcome was updated
-    if (updates.hasCompletedWelcome !== undefined) {
-      setHasCompletedWelcome(updates.hasCompletedWelcome);
-    }
+    const queuedRun = persistQueueRef.current.then(runPersist);
+    persistQueueRef.current = queuedRun.catch(() => {});
+    return queuedRun;
   };
 
   const handleAddSubscription = async (url: string) => {
@@ -922,7 +910,9 @@ export default function Home() {
 
   const handleClearWatchHistory = async () => {
     await clearWatchHistory();
-    setWatchedVideos(new Set());
+    const cleared = new Set<string>();
+    watchedVideosRef.current = cleared;
+    setWatchedVideos(cleared);
   };
 
   const handleResetAllSettings = async () => {
@@ -980,16 +970,18 @@ export default function Home() {
   };
 
   const handleWatchVideo = (videoId: string) => {
-    const previousWatched = new Set(watchedVideos);
-    const newWatched = new Set(watchedVideos);
+    const previousWatched = new Set(watchedVideosRef.current);
+    const newWatched = new Set(watchedVideosRef.current);
     newWatched.add(videoId);
 
     // Optimistic update
+    watchedVideosRef.current = newWatched;
     setWatchedVideos(newWatched);
 
     // Persist in background
     persistUserState({ watchedVideos: Array.from(newWatched) }).catch(() => {
       // Revert on error
+      watchedVideosRef.current = previousWatched;
       setWatchedVideos(previousWatched);
       showToast("Failed to save watch status", "error");
     });
@@ -1101,9 +1093,9 @@ export default function Home() {
   };
 
   const handleToggleWatched = (videoId: string) => {
-    const wasWatched = watchedVideos.has(videoId);
-    const previousWatched = new Set(watchedVideos);
-    const newWatched = new Set(watchedVideos);
+    const wasWatched = watchedVideosRef.current.has(videoId);
+    const previousWatched = new Set(watchedVideosRef.current);
+    const newWatched = new Set(watchedVideosRef.current);
 
     if (wasWatched) {
       newWatched.delete(videoId);
@@ -1112,11 +1104,13 @@ export default function Home() {
     }
 
     // Optimistic update
+    watchedVideosRef.current = newWatched;
     setWatchedVideos(newWatched);
 
     // Persist in background
     persistUserState({ watchedVideos: Array.from(newWatched) }).catch(() => {
       // Revert on error
+      watchedVideosRef.current = previousWatched;
       setWatchedVideos(previousWatched);
       showToast("Failed to save watch status", "error");
     });
@@ -1125,16 +1119,18 @@ export default function Home() {
     if (wasWatched) {
       showToast("Marked as unwatched", "success", () => {
         // Undo
-        const undoWatched = new Set(watchedVideos);
+        const undoWatched = new Set(watchedVideosRef.current);
         undoWatched.add(videoId);
+        watchedVideosRef.current = undoWatched;
         setWatchedVideos(undoWatched);
         persistUserState({ watchedVideos: Array.from(undoWatched) });
       });
     } else {
       showToast("Marked as watched", "success", () => {
         // Undo
-        const undoWatched = new Set(watchedVideos);
+        const undoWatched = new Set(watchedVideosRef.current);
         undoWatched.delete(videoId);
+        watchedVideosRef.current = undoWatched;
         setWatchedVideos(undoWatched);
         persistUserState({ watchedVideos: Array.from(undoWatched) });
       });
@@ -2141,18 +2137,10 @@ export default function Home() {
             setCurrentListId(newList.id);
             setFilterListId(newList.id);
 
-            // Persist to database
-            fetch("/api/user-state", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                watchedVideos: Array.from(watchedVideos),
-                hideWatched,
-                filterListId: newList.id,
-                hasCompletedWelcome,
-              }),
-            }).catch((e) => console.error("Failed to persist filter list:", e));
+            // Persist only the changed field.
+            persistUserState({ filterListId: newList.id }).catch((e) =>
+              console.error("Failed to persist filter list:", e)
+            );
           }, 0);
         }}
         onDeleteList={async (listId: string) => {

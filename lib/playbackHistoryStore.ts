@@ -1,60 +1,104 @@
 import { getDb } from "./db";
-import { migrateFromJson } from "./migrate";
 
 export interface PlaybackSession {
   videoId: string;
   videoTitle: string;
-  channelId: string;
+  channelId?: string | null;
   channelName: string;
-  thumbnail: string;
+  thumbnail?: string | null;
   timestamp: string;
-  duration: number; // in seconds
-  progress: number; // in seconds
+  duration: number;
+  progress: number;
   completed: boolean;
-}
-
-// Run migration on first import
-let migrationPromise: Promise<void> | null = null;
-async function ensureMigration() {
-  if (!migrationPromise) {
-    migrationPromise = migrateFromJson().catch((err) => {
-      console.error("Migration failed:", err);
-    });
-  }
-  await migrationPromise;
 }
 
 export async function readPlaybackHistory(
   userId: string
 ): Promise<PlaybackSession[]> {
-  await ensureMigration();
   const db = getDb();
 
-  const sessions = db
+  return db
     .prepare(
-      "SELECT video_id as videoId, video_title as videoTitle, channel_id as channelId, channel_name as channelName, thumbnail, timestamp, duration, progress, completed FROM playback_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT 500"
+      `SELECT
+        video_id as videoId,
+        video_title as videoTitle,
+        channel_id as channelId,
+        channel_name as channelName,
+        thumbnail,
+        timestamp,
+        duration,
+        progress,
+        completed
+      FROM playback_history
+      WHERE user_id = ?
+      ORDER BY timestamp DESC`
     )
-    .all(userId) as PlaybackSession[];
+    .all(userId)
+    .map((row: any) => ({
+      ...row,
+      completed: !!row.completed,
+    }));
+}
 
-  return sessions;
+export async function getPlaybackSession(
+  videoId: string,
+  userId: string
+): Promise<PlaybackSession | null> {
+  const db = getDb();
+
+  const row = db
+    .prepare(
+      `SELECT
+        video_id as videoId,
+        video_title as videoTitle,
+        channel_id as channelId,
+        channel_name as channelName,
+        thumbnail,
+        timestamp,
+        duration,
+        progress,
+        completed
+      FROM playback_history
+      WHERE video_id = ? AND user_id = ?`
+    )
+    .get(videoId, userId) as PlaybackSession | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    completed: !!(row as any).completed,
+  };
 }
 
 export async function savePlaybackSession(
   session: PlaybackSession,
   userId: string
 ): Promise<void> {
-  await ensureMigration();
   const db = getDb();
 
   db.prepare(
-    "INSERT OR REPLACE INTO playback_history (video_id, user_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    `INSERT INTO playback_history
+      (video_id, user_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(video_id, user_id) DO UPDATE SET
+      video_title = excluded.video_title,
+      channel_id = excluded.channel_id,
+      channel_name = excluded.channel_name,
+      thumbnail = excluded.thumbnail,
+      timestamp = excluded.timestamp,
+      duration = excluded.duration,
+      progress = excluded.progress,
+      completed = excluded.completed`
   ).run(
     session.videoId,
     userId,
     session.videoTitle,
-    session.channelId,
+    session.channelId || null,
     session.channelName,
-    session.thumbnail,
+    session.thumbnail || null,
     session.timestamp,
     session.duration,
     session.progress,
@@ -62,37 +106,18 @@ export async function savePlaybackSession(
   );
 }
 
-export async function getPlaybackSession(
-  videoId: string,
-  userId: string
-): Promise<PlaybackSession | null> {
-  await ensureMigration();
-  const db = getDb();
-
-  const session = db
-    .prepare(
-      "SELECT video_id as videoId, video_title as videoTitle, channel_id as channelId, channel_name as channelName, thumbnail, timestamp, duration, progress, completed FROM playback_history WHERE video_id = ? AND user_id = ?"
-    )
-    .get(videoId, userId) as PlaybackSession | undefined;
-
-  return session || null;
-}
-
-export async function clearPlaybackHistory(userId: string): Promise<void> {
-  await ensureMigration();
-  const db = getDb();
-
-  db.prepare("DELETE FROM playback_history WHERE user_id = ?").run(userId);
-}
-
 export async function deletePlaybackSession(
   videoId: string,
   userId: string
 ): Promise<void> {
-  await ensureMigration();
   const db = getDb();
+  db.prepare("DELETE FROM playback_history WHERE video_id = ? AND user_id = ?").run(
+    videoId,
+    userId
+  );
+}
 
-  db.prepare(
-    "DELETE FROM playback_history WHERE video_id = ? AND user_id = ?"
-  ).run(videoId, userId);
+export async function clearPlaybackHistory(userId: string): Promise<void> {
+  const db = getDb();
+  db.prepare("DELETE FROM playback_history WHERE user_id = ?").run(userId);
 }

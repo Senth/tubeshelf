@@ -1,197 +1,146 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { getCurrentUser } from "@/lib/currentUser";
+import { resolveChannelId, fetchChannelFeed } from "@/lib/videoFetcher";
 import {
-  readLists,
   addSubscriptionToList,
-  removeSubscriptionFromList,
-  clearListSubscriptions,
   clearAllSubscriptions,
+  clearListSubscriptions,
   moveSubscription,
+  readLists,
+  removeSubscriptionFromList,
 } from "@/lib/subscriptionListStore";
-import { fetchChannelFeed, resolveChannelId } from "@/lib/videoFetcher";
-import { getUserFromSession } from "@/lib/auth";
 
-export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await req.json().catch(() => null);
-  const { listId, input } = body || {};
-
-  if (!listId || !input) {
-    console.error("[API] Add subscription failed: Missing required fields", {
-      listId: !!listId,
-      input: !!input,
-    });
-    return NextResponse.json(
-      { error: "List ID and input required" },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const channelId = await resolveChannelId(input);
-    if (!channelId) {
-      console.error(
-        "[API] Add subscription failed: Could not resolve channel ID",
-        {
-          input,
-          listId,
-        }
-      );
-      return NextResponse.json(
-        { error: "Could not parse channel ID from input" },
-        { status: 400 }
-      );
-    }
-
-    const { meta } = await fetchChannelFeed(channelId);
-    const subscription = {
-      id: channelId,
-      channelId,
-      title: meta.title || channelId,
-      url: `https://www.youtube.com/channel/${channelId}`,
-      thumbnail: meta.thumbnail,
-      subscriberCount: meta.subscriberCount,
-      addedAt: new Date().toISOString(),
-    };
-
-    await addSubscriptionToList(listId, subscription, user.id);
-    const lists = await readLists(user.id);
-    const list = lists.lists.find((l) => l.id === listId);
-    return NextResponse.json(list);
-  } catch (err: any) {
-    console.error("[API] Add subscription failed", {
-      listId,
-      input,
-      error: err?.message || String(err),
-      stack: err?.stack,
-    });
-    return NextResponse.json(
-      { error: err?.message || "Failed to add subscription" },
-      { status: 400 }
-    );
-  }
+function getDefaultListId(userId: string) {
+  return `default-${userId}`;
 }
 
-export async function DELETE(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+export async function POST(req: Request) {
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => null);
-  const { action, channelId, listId } = body || {};
+  const input = typeof body?.input === "string" ? body.input.trim() : "";
+  const listId =
+    typeof body?.listId === "string" && body.listId.trim().length > 0
+      ? body.listId
+      : getDefaultListId(user.id);
 
-  // Handle clear actions (delete all or from specific list)
-  if (action === "clear") {
-    try {
-      if (listId) {
-        // Clear subscriptions from specific list
-        await clearListSubscriptions(listId, user.id);
-      } else {
-        // Clear all subscriptions from all lists
-        await clearAllSubscriptions(user.id);
-      }
-      const lists = await readLists(user.id);
-      return NextResponse.json(lists);
-    } catch (err: any) {
-      console.error("[API] Clear subscriptions failed", {
-        action,
-        listId,
-        error: err?.message || String(err),
-        stack: err?.stack,
-      });
-      return NextResponse.json(
-        { error: err?.message || "Failed to clear subscriptions" },
-        { status: 400 }
-      );
-    }
+  if (!input) {
+    return NextResponse.json({ error: "Input required" }, { status: 400 });
   }
 
-  // Handle removing a single subscription
-  const listIdParam = listId || new URL(req.url).searchParams.get("listId");
-  const channelIdParam =
-    channelId || new URL(req.url).searchParams.get("channelId");
-
-  if (!listIdParam || !channelIdParam) {
-    console.error("[API] Remove subscription failed: Missing parameters", {
-      listId: !!listIdParam,
-      channelId: !!channelIdParam,
-    });
+  const channelId = await resolveChannelId(input);
+  if (!channelId) {
     return NextResponse.json(
-      { error: "List ID and channel ID required" },
+      { error: "Could not parse channel ID from input" },
       { status: 400 }
     );
   }
 
+  let title = channelId;
+  let thumbnail: string | undefined;
   try {
-    await removeSubscriptionFromList(listIdParam, channelIdParam, user.id);
-    const lists = await readLists(user.id);
-    return NextResponse.json(lists);
-  } catch (err: any) {
-    console.error("[API] Remove subscription failed", {
-      listId: listIdParam,
-      channelId: channelIdParam,
-      error: err?.message || String(err),
-      stack: err?.stack,
-    });
-    return NextResponse.json(
-      { error: err?.message || "Failed to remove subscription" },
-      { status: 400 }
-    );
+    const { meta } = await fetchChannelFeed(channelId);
+    title = meta?.title || title;
+    thumbnail = meta?.thumbnail;
+  } catch {
+    // Keep fallback values if metadata fetch fails
   }
+
+  await addSubscriptionToList(
+    listId,
+    {
+      id: channelId,
+      channelId,
+      title,
+      thumbnail,
+      url: `https://www.youtube.com/channel/${channelId}`,
+      addedAt: new Date().toISOString(),
+    },
+    user.id
+  );
+
+  const lists = await readLists(user.id);
+  const list = lists.lists.find((l) => l.id === listId);
+
+  return NextResponse.json(
+    list || {
+      id: listId,
+      name: "Default",
+      subscriptions: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  );
 }
 
 export async function PATCH(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => null);
-  const { action, channelId, fromListId, toListId } = body || {};
+  const action = body?.action;
 
-  if (action === "move") {
-    if (!channelId || !fromListId || !toListId) {
-      console.error("[API] Move subscription failed: Missing parameters", {
-        channelId: !!channelId,
-        fromListId: !!fromListId,
-        toListId: !!toListId,
-      });
-      return NextResponse.json(
-        { error: "Channel ID, source list ID, and target list ID required" },
-        { status: 400 }
-      );
-    }
-
-    try {
-      await moveSubscription(fromListId, toListId, channelId, user.id);
-      const lists = await readLists(user.id);
-      return NextResponse.json(lists);
-    } catch (err: any) {
-      console.error("[API] Move subscription failed", {
-        channelId,
-        fromListId,
-        toListId,
-        error: err?.message || String(err),
-        stack: err?.stack,
-      });
-      return NextResponse.json(
-        { error: err?.message || "Failed to move subscription" },
-        { status: 400 }
-      );
-    }
+  if (action !== "move") {
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
 
-  console.error("[API] PATCH subscription failed: Unknown action", { action });
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  const channelId =
+    typeof body?.channelId === "string" ? body.channelId.trim() : "";
+  const fromListId =
+    typeof body?.fromListId === "string" ? body.fromListId.trim() : "";
+  const toListId =
+    typeof body?.toListId === "string" ? body.toListId.trim() : "";
+
+  if (!channelId || !fromListId || !toListId) {
+    return NextResponse.json(
+      { error: "channelId, fromListId and toListId are required" },
+      { status: 400 }
+    );
+  }
+
+  await moveSubscription(fromListId, toListId, channelId, user.id);
+  const lists = await readLists(user.id);
+  return NextResponse.json(lists);
+}
+
+export async function DELETE(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+
+  if (action === "clear") {
+    const listId = typeof body?.listId === "string" ? body.listId.trim() : "";
+
+    if (listId) {
+      await clearListSubscriptions(listId, user.id);
+    } else {
+      await clearAllSubscriptions(user.id);
+    }
+
+    const lists = await readLists(user.id);
+    return NextResponse.json(lists);
+  }
+
+  const channelId =
+    typeof body?.channelId === "string" ? body.channelId.trim() : "";
+  const listId =
+    typeof body?.listId === "string" && body.listId.trim().length > 0
+      ? body.listId
+      : getDefaultListId(user.id);
+
+  if (!channelId) {
+    return NextResponse.json({ error: "channelId is required" }, { status: 400 });
+  }
+
+  await removeSubscriptionFromList(listId, channelId, user.id);
+  return NextResponse.json({ success: true });
 }

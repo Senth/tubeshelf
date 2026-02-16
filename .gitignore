@@ -1,18 +1,21 @@
-node_modules
-.next
-.env
-.env.local
-.env.*.local
-dist
-build
-out
+# macOS
 .DS_Store
-*.pem
-npm-debug.log
-yarn-error.log
-yarn-debug.log*
-pnpm-debug.log*
-.vercel
-.turbo
-data
-coverage
+
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# local app data
+data/
+
+# env
+.env
+.env.*
+!.env.example
+
+# build/cache
+*.tsbuildinfo
+npm-debug.log*

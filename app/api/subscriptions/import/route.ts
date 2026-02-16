@@ -1,167 +1,125 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { XMLParser } from "fast-xml-parser";
-import { readLists, addSubscriptionToList } from "@/lib/subscriptionListStore";
-import { getUserFromSession } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/currentUser";
+import { resolveChannelId, fetchChannelFeed } from "@/lib/videoFetcher";
+import { addSubscriptionToList } from "@/lib/subscriptionListStore";
 
-function collectOutlines(node: any, out: any[] = []) {
-  if (!node) return out;
-  if (Array.isArray(node)) {
-    node.forEach((n) => collectOutlines(n, out));
-    return out;
-  }
-  if (node.outline) {
-    collectOutlines(node.outline, out);
-  }
-  if (node.xmlUrl) out.push(node);
-  return out;
-}
+function parseCandidates(payload: string): string[] {
+  const trimmed = payload.trim();
+  if (!trimmed) return [];
 
-function extractChannelId(xmlUrl: string): string | null {
-  try {
-    const url = new URL(xmlUrl);
-    const cid = url.searchParams.get("channel_id");
-    if (cid) return cid;
-    // Handle potential path style .../channel/CHANNEL_ID
-    const parts = url.pathname.split("/").filter(Boolean);
-    const channelIndex = parts.indexOf("channel");
-    if (channelIndex >= 0 && parts[channelIndex + 1]) {
-      return parts[channelIndex + 1];
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const candidates = new Set<string>();
+
+      const walk = (value: any) => {
+        if (!value) return;
+
+        if (typeof value === "string") {
+          candidates.add(value.trim());
+          return;
+        }
+
+        if (Array.isArray(value)) {
+          for (const item of value) walk(item);
+          return;
+        }
+
+        if (typeof value === "object") {
+          if (typeof value.channelId === "string") candidates.add(value.channelId.trim());
+          if (typeof value.url === "string") candidates.add(value.url.trim());
+          if (typeof value.input === "string") candidates.add(value.input.trim());
+          for (const nested of Object.values(value)) walk(nested);
+        }
+      };
+
+      walk(parsed);
+      return [...candidates].filter(Boolean);
+    } catch {
+      // Fall through to OPML parsing.
     }
-    return null;
-  } catch {
-    return null;
   }
+
+  const candidates = new Set<string>();
+
+  const xmlUrlRegex = /xmlUrl\s*=\s*"([^"]+)"/gi;
+  let match: RegExpExecArray | null;
+  while ((match = xmlUrlRegex.exec(trimmed))) {
+    candidates.add(match[1]);
+  }
+
+  const textRegex = /text\s*=\s*"([^"]+)"/gi;
+  while ((match = textRegex.exec(trimmed))) {
+    candidates.add(match[1]);
+  }
+
+  return [...candidates].filter(Boolean);
 }
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const contentType = req.headers.get("content-type") || "";
-  const body = await req.text().catch(() => "");
+  const { searchParams } = new URL(req.url);
+  const listId =
+    searchParams.get("listId")?.trim() || `default-${user.id}`;
 
-  if (!body.trim()) {
-    console.error("[API] Import failed: No content provided");
-    return NextResponse.json({ error: "No content provided" }, { status: 400 });
-  }
+  const payload = await req.text();
+  const candidates = parseCandidates(payload);
 
-  let channelItems: { channelId: string; title: string }[] = [];
-
-  try {
-    // Handle JSON format (Invidious)
-    if (contentType.includes("application/json")) {
-      const json = JSON.parse(body);
-      if (!json.subscriptions || !Array.isArray(json.subscriptions)) {
-        console.error("[API] Import failed: Invalid JSON format");
-        return NextResponse.json(
-          { error: "Invalid JSON format: missing subscriptions array" },
-          { status: 400 }
-        );
-      }
-
-      channelItems = json.subscriptions
-        .filter((id: any) => typeof id === "string" && id.startsWith("UC"))
-        .map((id: string) => ({ channelId: id, title: id }));
-    }
-    // Handle OPML/XML format
-    else {
-      const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: "",
-      });
-      const parsed = parser.parse(body);
-      const outlines = collectOutlines(parsed?.opml?.body) as any[];
-      const entries = outlines
-        .map((o) => ({
-          xmlUrl: o.xmlUrl as string | undefined,
-          title: (o.title || o.text) as string | undefined,
-        }))
-        .filter((o) => o.xmlUrl);
-
-      channelItems = entries
-        .map((e) => {
-          const channelId = extractChannelId(e.xmlUrl!);
-          if (!channelId) return null;
-          return { channelId, title: e.title || channelId };
-        })
-        .filter((x): x is { channelId: string; title: string } => !!x);
-    }
-
-    if (channelItems.length === 0) {
-      console.error(
-        "[API] Import failed: No valid channel IDs found in import data"
-      );
-      return NextResponse.json(
-        { error: "No valid channel IDs found" },
-        { status: 400 }
-      );
-    }
-
-    // Get listId from query params or use default
-    const url = new URL(req.url);
-    const listId = url.searchParams.get("listId") || "default";
-
-    const listsData = await readLists(user.id);
-    const targetList = listsData.lists.find((l) => l.id === listId);
-
-    if (!targetList) {
-      console.error("[API] Import failed: Target list not found", { listId });
-      return NextResponse.json(
-        { error: "Target list not found" },
-        { status: 404 }
-      );
-    }
-
-    const existingIds = new Set(
-      targetList.subscriptions.map((s) => s.channelId)
-    );
-
-    let added = 0;
-    let skipped = 0;
-
-    // Fast path: do not fetch channel metadata during import to avoid stalls.
-    // We add subscriptions immediately; metadata can be enriched later by feed builds.
-    for (const item of channelItems) {
-      if (existingIds.has(item.channelId)) {
-        skipped++;
-        continue;
-      }
-      existingIds.add(item.channelId);
-
-      const subscription = {
-        id: item.channelId,
-        channelId: item.channelId,
-        title: item.title,
-        url: `https://www.youtube.com/channel/${item.channelId}`,
-        thumbnail: undefined,
-        addedAt: new Date().toISOString(),
-      };
-
-      await addSubscriptionToList(listId, subscription, user.id);
-      added++;
-    }
-
-    const updatedList = await readLists(user.id);
-    const finalList = updatedList.lists.find((l) => l.id === listId);
-
-    return NextResponse.json({
-      added,
-      skipped,
-      total: finalList?.subscriptions.length || 0,
-    });
-  } catch (err: any) {
-    console.error("[API] Import failed", {
-      error: err?.message || String(err),
-      stack: err?.stack,
-    });
+  if (candidates.length === 0) {
     return NextResponse.json(
-      { error: err?.message || "Failed to import OPML" },
+      { error: "No subscriptions found in import payload" },
       { status: 400 }
     );
   }
+
+  let added = 0;
+  let skipped = 0;
+
+  for (const candidate of candidates) {
+    const channelId = await resolveChannelId(candidate);
+    if (!channelId) {
+      skipped += 1;
+      continue;
+    }
+
+    let title = channelId;
+    let thumbnail: string | undefined;
+
+    try {
+      const { meta } = await fetchChannelFeed(channelId);
+      title = meta?.title || title;
+      thumbnail = meta?.thumbnail;
+    } catch {
+      // Use fallback metadata.
+    }
+
+    try {
+      await addSubscriptionToList(
+        listId,
+        {
+          id: channelId,
+          channelId,
+          title,
+          url: `https://www.youtube.com/channel/${channelId}`,
+          thumbnail,
+          addedAt: new Date().toISOString(),
+        },
+        user.id
+      );
+      added += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    total: candidates.length,
+    added,
+    skipped,
+  });
 }

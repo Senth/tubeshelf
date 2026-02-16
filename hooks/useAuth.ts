@@ -1,59 +1,76 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
-interface User {
+export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
   isAdmin: boolean;
+  oidcProvider: string | null;
   authType: "local" | "oidc";
-  oidcProvider?: string | null;
 }
 
-export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+interface UseAuthResult {
+  user: AuthUser | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  logout: () => Promise<void>;
+}
 
-  useEffect(() => {
-    checkSession();
+export function useAuth(): UseAuthResult {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        setUser(null);
+        return;
+      }
+
+      const data = await res.json();
+      setUser(data.user || null);
+    } catch {
+      setUser(null);
+    }
   }, []);
 
-  const checkSession = async () => {
-    try {
-      const response = await fetch("/api/auth/session", {
-        credentials: "include",
-      });
-      const data = await response.json();
+  useEffect(() => {
+    let active = true;
 
-      if (data.user) {
-        setUser(data.user);
-      } else {
-        setUser(null);
+    (async () => {
+      await refresh();
+      if (active) {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to check session:", error);
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
 
-  const logout = async () => {
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  const logout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });
+    } finally {
       setUser(null);
-      router.push("/login");
-      router.refresh();
-    } catch (error) {
-      console.error("Logout failed:", error);
     }
-  };
+  }, []);
 
-  return { user, loading, logout, refresh: checkSession };
+  return {
+    user,
+    loading,
+    refresh,
+    logout,
+  };
 }
