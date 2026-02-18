@@ -3,13 +3,13 @@
 import React, { useState, useEffect, useRef, memo } from "react";
 import {
   X,
-  Clock,
   ExternalLink,
-  Volume2,
-  Maximize,
   Keyboard,
+  Loader2,
+  ThumbsUp,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import { Button } from "./ui/button";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 
 // YouTube IFrame API types
@@ -36,6 +36,30 @@ interface VideoPlayerProps {
   initialProgress?: number;
 }
 
+interface PlayerComment {
+  id: string;
+  author: string;
+  text: string;
+  publishedTime: string;
+  likeCountText?: string;
+  authorAvatarUrl?: string;
+  authorIsCreator?: boolean;
+  pinned?: boolean;
+  replyCount?: number;
+  replyCountText?: string;
+  repliesToken?: string;
+}
+
+interface ReplyThreadState {
+  expanded: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  items: PlayerComment[];
+  nextPageToken?: string;
+  initialToken?: string;
+}
+
 const VideoPlayerComponent = ({
   videoId,
   videoTitle,
@@ -60,6 +84,20 @@ const VideoPlayerComponent = ({
   const [currentTime, setCurrentTime] = useState(0);
   const shortcutsRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [commentsSort, setCommentsSort] = useState<"top" | "new">("top");
+  const [comments, setComments] = useState<PlayerComment[]>([]);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [loadingMoreComments, setLoadingMoreComments] = useState(false);
+  const [nextCommentsToken, setNextCommentsToken] = useState<string | undefined>(
+    undefined
+  );
+  const [commentsDisabled, setCommentsDisabled] = useState(false);
+  const [replyThreads, setReplyThreads] = useState<Record<string, ReplyThreadState>>(
+    {}
+  );
+  const commentsRequestIdRef = useRef(0);
+  const replyRequestIdRef = useRef<Record<string, number>>({});
 
   // Extract video ID from YouTube URL
   const getYouTubeVideoId = (url: string) => {
@@ -70,6 +108,250 @@ const VideoPlayerComponent = ({
   };
 
   const ytVideoId = getYouTubeVideoId(videoUrl);
+
+  useEffect(() => {
+    // Reset comments state when switching videos.
+    setCommentsSort("top");
+    setComments([]);
+    setCommentsError(null);
+    setCommentsLoading(false);
+    setLoadingMoreComments(false);
+    setNextCommentsToken(undefined);
+    setCommentsDisabled(false);
+    setReplyThreads({});
+    commentsRequestIdRef.current += 1;
+    replyRequestIdRef.current = {};
+  }, [ytVideoId]);
+
+  const loadCommentsPage = async (options?: {
+    append?: boolean;
+    pageToken?: string;
+    sortOverride?: "top" | "new";
+  }) => {
+    const append = !!options?.append;
+    const pageToken = options?.pageToken;
+    const sortToUse = options?.sortOverride || commentsSort;
+    const requestId = ++commentsRequestIdRef.current;
+
+    if (append) {
+      setLoadingMoreComments(true);
+    } else {
+      setCommentsLoading(true);
+    }
+    setCommentsError(null);
+
+    try {
+      const params = new URLSearchParams({
+        videoId: ytVideoId,
+        sort: sortToUse,
+      });
+      if (pageToken) {
+        params.set("pageToken", pageToken);
+      }
+
+      const res = await fetch(`/api/video-comments?${params.toString()}`, {
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to load comments");
+      }
+
+      const data = await res.json();
+      if (requestId !== commentsRequestIdRef.current) {
+        return;
+      }
+
+      const incomingComments: PlayerComment[] = Array.isArray(data.comments)
+        ? data.comments
+            .filter((comment: any) => comment && typeof comment.id === "string")
+            .map((comment: any) => ({
+              id: comment.id,
+              author:
+                typeof comment.author === "string" && comment.author.length > 0
+                  ? comment.author
+                  : "Unknown",
+              text:
+                typeof comment.text === "string" ? comment.text : String(comment.text || ""),
+              publishedTime:
+                typeof comment.publishedTime === "string" ? comment.publishedTime : "",
+              likeCountText:
+                typeof comment.likeCountText === "string"
+                  ? comment.likeCountText
+                  : undefined,
+              authorAvatarUrl:
+                typeof comment.authorAvatarUrl === "string"
+                  ? comment.authorAvatarUrl
+                  : undefined,
+              authorIsCreator: !!comment.authorIsCreator,
+              pinned: !!comment.pinned,
+            }))
+        : [];
+
+      if (append) {
+        setComments((prev) => {
+          const merged = [...prev, ...incomingComments];
+          const seen = new Set<string>();
+          return merged.filter((comment) => {
+            if (seen.has(comment.id)) return false;
+            seen.add(comment.id);
+            return true;
+          });
+        });
+      } else {
+        setComments(incomingComments);
+      }
+
+      setCommentsDisabled(!!data.disabled);
+      setNextCommentsToken(
+        typeof data.nextPageToken === "string" && data.nextPageToken.length > 0
+          ? data.nextPageToken
+          : undefined
+      );
+    } catch (error) {
+      if (requestId !== commentsRequestIdRef.current) {
+        return;
+      }
+      setCommentsError("Could not load comments right now.");
+      if (!append) {
+        setComments([]);
+        setNextCommentsToken(undefined);
+      }
+    } finally {
+      if (requestId === commentsRequestIdRef.current) {
+        setCommentsLoading(false);
+        setLoadingMoreComments(false);
+      }
+    }
+  };
+
+  const loadReplies = async (
+    parentCommentId: string,
+    token: string,
+    append = false
+  ) => {
+    const requestId = (replyRequestIdRef.current[parentCommentId] || 0) + 1;
+    replyRequestIdRef.current[parentCommentId] = requestId;
+
+    setReplyThreads((prev) => {
+      const current = prev[parentCommentId];
+      return {
+        ...prev,
+        [parentCommentId]: {
+          expanded: true,
+          loading: append ? current?.loading || false : true,
+          loadingMore: append ? true : false,
+          error: null,
+          items: current?.items || [],
+          nextPageToken: current?.nextPageToken,
+          initialToken: current?.initialToken || token,
+        },
+      };
+    });
+
+    try {
+      const params = new URLSearchParams({
+        videoId: ytVideoId,
+        pageToken: token,
+      });
+
+      const res = await fetch(`/api/video-comments?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load replies");
+      }
+
+      const data = await res.json();
+      if (replyRequestIdRef.current[parentCommentId] !== requestId) {
+        return;
+      }
+
+      const incomingReplies: PlayerComment[] = Array.isArray(data.comments)
+        ? data.comments
+            .filter((comment: any) => comment && typeof comment.id === "string")
+            .map((comment: any) => ({
+              id: comment.id,
+              author:
+                typeof comment.author === "string" && comment.author.length > 0
+                  ? comment.author
+                  : "Unknown",
+              text:
+                typeof comment.text === "string"
+                  ? comment.text
+                  : String(comment.text || ""),
+              publishedTime:
+                typeof comment.publishedTime === "string"
+                  ? comment.publishedTime
+                  : "",
+              likeCountText:
+                typeof comment.likeCountText === "string"
+                  ? comment.likeCountText
+                  : undefined,
+              authorAvatarUrl:
+                typeof comment.authorAvatarUrl === "string"
+                  ? comment.authorAvatarUrl
+                  : undefined,
+              authorIsCreator: !!comment.authorIsCreator,
+              pinned: !!comment.pinned,
+            }))
+        : [];
+
+      setReplyThreads((prev) => {
+        const current = prev[parentCommentId];
+        const merged = append
+          ? [...(current?.items || []), ...incomingReplies]
+          : incomingReplies;
+        const seen = new Set<string>();
+        const deduped = merged.filter((reply) => {
+          if (seen.has(reply.id)) return false;
+          seen.add(reply.id);
+          return true;
+        });
+
+        return {
+          ...prev,
+          [parentCommentId]: {
+            expanded: true,
+            loading: false,
+            loadingMore: false,
+            error: null,
+            items: deduped,
+            nextPageToken:
+              typeof data.nextPageToken === "string" && data.nextPageToken.length > 0
+                ? data.nextPageToken
+                : undefined,
+            initialToken: current?.initialToken || token,
+          },
+        };
+      });
+    } catch {
+      if (replyRequestIdRef.current[parentCommentId] !== requestId) {
+        return;
+      }
+      setReplyThreads((prev) => {
+        const current = prev[parentCommentId];
+        return {
+          ...prev,
+          [parentCommentId]: {
+            expanded: true,
+            loading: false,
+            loadingMore: false,
+            error: "Could not load replies.",
+            items: current?.items || [],
+            nextPageToken: current?.nextPageToken,
+            initialToken: current?.initialToken || token,
+          },
+        };
+      });
+    }
+  };
+
+  useEffect(() => {
+    loadCommentsPage({ sortOverride: "top" });
+    // Intentionally only on video change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ytVideoId]);
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -673,6 +955,267 @@ const VideoPlayerComponent = ({
         <div className="w-full h-full max-w-7xl relative rounded-xl overflow-hidden shadow-2xl">
           {/* YouTube IFrame API player */}
           <div ref={playerContainerRef} className="w-full h-full" />
+
+        </div>
+      </div>
+
+      {/* Comments Section */}
+      <div className="px-4 sm:px-6 lg:px-8 pb-4">
+        <div className="max-w-7xl mx-auto rounded-xl border border-white/10 bg-black/85 backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+            <div className="min-w-0">
+              <h2 className="text-white font-semibold text-sm">Comments</h2>
+              <p className="text-xs text-gray-400">
+                Loaded in small chunks, replies on demand
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={commentsSort}
+                onChange={(e) => {
+                  const newSort = e.target.value === "new" ? "new" : "top";
+                  if (newSort === commentsSort) return;
+                  setCommentsSort(newSort);
+                  setComments([]);
+                  setCommentsError(null);
+                  setNextCommentsToken(undefined);
+                  setCommentsDisabled(false);
+                  setReplyThreads({});
+                  loadCommentsPage({ sortOverride: newSort });
+                }}
+                className="h-8 rounded-md border border-white/20 bg-black/70 px-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-white/30"
+                title="Sort comments"
+              >
+                <option value="top">Top</option>
+                <option value="new">Newest</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto px-4 py-3 space-y-3">
+            {commentsLoading && comments.length === 0 ? (
+              <div className="h-full min-h-[160px] flex items-center justify-center text-gray-300">
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Loading comments...
+              </div>
+            ) : commentsError ? (
+              <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+                <p>{commentsError}</p>
+                <button
+                  onClick={() => loadCommentsPage({ sortOverride: commentsSort })}
+                  className="mt-2 text-xs underline underline-offset-2 hover:text-red-100"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : commentsDisabled ? (
+              <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
+                Comments are disabled for this video.
+              </div>
+            ) : comments.length === 0 ? (
+              <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
+                No comments available.
+              </div>
+            ) : (
+              comments.map((comment) => {
+                const thread = replyThreads[comment.id];
+                return (
+                  <article
+                    key={comment.id}
+                    className="rounded-lg border border-white/10 bg-white/5 p-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      {comment.authorAvatarUrl ? (
+                        <img
+                          src={getProxiedImageUrl(comment.authorAvatarUrl)}
+                          alt={comment.author}
+                          className="w-8 h-8 rounded-full ring-1 ring-white/10 flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-white/10 text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                          {comment.author.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <span className="font-semibold text-white truncate">
+                            {comment.author}
+                          </span>
+                          {comment.authorIsCreator && (
+                            <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
+                              Creator
+                            </span>
+                          )}
+                          {comment.pinned && (
+                            <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
+                              Pinned
+                            </span>
+                          )}
+                          {comment.publishedTime && (
+                            <span className="text-gray-400">{comment.publishedTime}</span>
+                          )}
+                        </div>
+
+                        <p className="mt-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+                          {comment.text}
+                        </p>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                          {comment.likeCountText && (
+                            <span className="inline-flex items-center gap-1 text-gray-400">
+                              <ThumbsUp className="w-3 h-3" />
+                              <span>{comment.likeCountText}</span>
+                            </span>
+                          )}
+
+                          {(comment.replyCount || comment.repliesToken) && (
+                            <button
+                              onClick={() => {
+                                if (thread?.expanded) {
+                                  setReplyThreads((prev) => ({
+                                    ...prev,
+                                    [comment.id]: {
+                                      ...prev[comment.id],
+                                      expanded: false,
+                                    },
+                                  }));
+                                  return;
+                                }
+
+                                if (thread?.items?.length) {
+                                  setReplyThreads((prev) => ({
+                                    ...prev,
+                                    [comment.id]: {
+                                      ...prev[comment.id],
+                                      expanded: true,
+                                    },
+                                  }));
+                                  return;
+                                }
+
+                                const initialToken = comment.repliesToken;
+                                if (initialToken) {
+                                  loadReplies(comment.id, initialToken, false);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-gray-300 hover:text-white transition-colors"
+                            >
+                              {thread?.expanded ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                              <span>
+                                {comment.replyCountText ||
+                                  (comment.replyCount
+                                    ? `${comment.replyCount} replies`
+                                    : "Replies")}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+
+                        {thread?.expanded && (
+                          <div className="mt-3 pl-3 border-l border-white/10 space-y-2">
+                            {thread.loading ? (
+                              <div className="text-xs text-gray-400 inline-flex items-center gap-2">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Loading replies...
+                              </div>
+                            ) : thread.error ? (
+                              <div className="text-xs text-red-300">
+                                {thread.error}
+                              </div>
+                            ) : thread.items.length === 0 ? (
+                              <div className="text-xs text-gray-400">
+                                No replies found.
+                              </div>
+                            ) : (
+                              <>
+                                {thread.items.map((reply) => (
+                                  <div
+                                    key={reply.id}
+                                    className="rounded-md border border-white/10 bg-black/30 p-2"
+                                  >
+                                    <div className="text-xs text-gray-300">
+                                      <span className="font-semibold text-white mr-2">
+                                        {reply.author}
+                                      </span>
+                                      {reply.publishedTime}
+                                    </div>
+                                    <p className="mt-1 text-sm text-gray-100 whitespace-pre-wrap break-words">
+                                      {reply.text}
+                                    </p>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+
+                            {thread.nextPageToken && (
+                              <button
+                                onClick={() =>
+                                  thread.nextPageToken &&
+                                  loadReplies(comment.id, thread.nextPageToken, true)
+                                }
+                                disabled={thread.loadingMore}
+                                className="inline-flex items-center text-xs text-gray-300 hover:text-white disabled:opacity-50"
+                              >
+                                {thread.loadingMore ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                    Loading more replies...
+                                  </>
+                                ) : (
+                                  "Load more replies"
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+
+          <div className="border-t border-white/10 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                onClick={() =>
+                  nextCommentsToken &&
+                  loadCommentsPage({
+                    append: true,
+                    pageToken: nextCommentsToken,
+                    sortOverride: commentsSort,
+                  })
+                }
+                disabled={!nextCommentsToken || loadingMoreComments || commentsLoading}
+                className="inline-flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-2 transition-colors"
+              >
+                {loadingMoreComments ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Loading...
+                  </>
+                ) : (
+                  "Load more comments"
+                )}
+              </button>
+
+              <a
+                href={youtubeUrlWithTimestamp}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-gray-300 hover:text-white underline underline-offset-2"
+              >
+                Open full thread on YouTube
+              </a>
+            </div>
+          </div>
         </div>
       </div>
 
