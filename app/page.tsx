@@ -1965,7 +1965,25 @@ export default function Home() {
 
                 {/* Watch History Tab */}
                 {feedTab === "watch-history" && (
-                  <PlaybackHistory onClose={() => setCurrentPage("home")} />
+                  <PlaybackHistory
+                    onClose={() => setCurrentPage("home")}
+                    watchedVideos={watchedVideos}
+                    onToggleWatched={handleToggleWatched}
+                    onPlayVideo={(videoId, progress, metadata) => {
+                      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+                      setInitialProgress(
+                        typeof progress === "number" && progress > 0 ? progress : 0
+                      );
+                      handlePlayInPlayer(
+                        videoUrl,
+                        videoId,
+                        metadata?.title || "Video",
+                        metadata?.channel || "Unknown channel",
+                        metadata?.channelId || undefined,
+                        metadata?.thumbnail || undefined
+                      );
+                    }}
+                  />
                 )}
 
                 {/* UI simplified — only Videos tab content shown */}

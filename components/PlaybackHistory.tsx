@@ -1,18 +1,31 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Trash2, Play, History, AlertTriangle } from "lucide-react";
+import { Trash2, Play, History, AlertTriangle, Eye, EyeOff } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 import { Button } from "./ui/button";
 import type { PlaybackSession } from "@/lib/playbackHistoryStore";
 
 interface PlaybackHistoryProps {
   onClose: () => void;
-  onPlayVideo?: (videoId: string, progress: number) => void;
+  watchedVideos?: Set<string>;
+  onToggleWatched?: (videoId: string) => void;
+  onPlayVideo?: (
+    videoId: string,
+    progress: number,
+    metadata?: {
+      title: string;
+      channel: string;
+      channelId?: string | null;
+      thumbnail?: string | null;
+    }
+  ) => void;
 }
 
 export function PlaybackHistory({
   onClose,
+  watchedVideos,
+  onToggleWatched,
   onPlayVideo,
 }: PlaybackHistoryProps) {
   const [history, setHistory] = useState<PlaybackSession[]>([]);
@@ -157,6 +170,7 @@ export function PlaybackHistory({
             session.progress,
             session.duration
           );
+          const isWatched = watchedVideos?.has(session.videoId) || false;
           const thumbnailUrl =
             session.thumbnail ||
             `https://i.ytimg.com/vi/${session.videoId}/hqdefault.jpg`;
@@ -176,7 +190,12 @@ export function PlaybackHistory({
                     alt={session.videoTitle}
                     className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                     onClick={() =>
-                      onPlayVideo?.(session.videoId, session.progress)
+                      onPlayVideo?.(session.videoId, session.progress, {
+                        title: session.videoTitle,
+                        channel: session.channelName,
+                        channelId: session.channelId,
+                        thumbnail: session.thumbnail,
+                      })
                     }
                   />
                   {/* Progress bar */}
@@ -186,6 +205,12 @@ export function PlaybackHistory({
                       style={{ width: `${progressPercent}%` }}
                     />
                   </div>
+                  {isWatched && (
+                    <div className="absolute top-1 left-1 inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">
+                      <Eye className="w-3 h-3" />
+                      Watched
+                    </div>
+                  )}
                 </div>
 
                 {/* Content */}
@@ -193,7 +218,12 @@ export function PlaybackHistory({
                   <h4
                     className="font-semibold text-sm line-clamp-2 text-foreground group-hover:text-primary transition-colors cursor-pointer"
                     onClick={() =>
-                      onPlayVideo?.(session.videoId, session.progress)
+                      onPlayVideo?.(session.videoId, session.progress, {
+                        title: session.videoTitle,
+                        channel: session.channelName,
+                        channelId: session.channelId,
+                        thumbnail: session.thumbnail,
+                      })
                     }
                   >
                     {session.videoTitle}
@@ -214,8 +244,24 @@ export function PlaybackHistory({
                 {/* Actions */}
                 <div className="flex gap-1 flex-shrink-0 items-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
+                    onClick={() => onToggleWatched?.(session.videoId)}
+                    className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                    title={isWatched ? "Mark as unwatched" : "Mark as watched"}
+                  >
+                    {isWatched ? (
+                      <EyeOff className="w-4 h-4 text-primary" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </button>
+                  <button
                     onClick={() =>
-                      onPlayVideo?.(session.videoId, session.progress)
+                      onPlayVideo?.(session.videoId, session.progress, {
+                        title: session.videoTitle,
+                        channel: session.channelName,
+                        channelId: session.channelId,
+                        thumbnail: session.thumbnail,
+                      })
                     }
                     className="p-2 rounded-md hover:bg-primary/10 transition-colors"
                     title="Resume playback"
