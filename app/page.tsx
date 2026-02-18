@@ -575,6 +575,11 @@ export default function Home() {
       setCurrentPage("watch-later");
     }
 
+    const tab = searchParams.get("tab");
+    if (tab === "videos" || tab === "watch-later" || tab === "watch-history") {
+      setFeedTab(tab);
+    }
+
     const search = searchParams.get("search");
     if (search) {
       setSearchQuery(search);
@@ -604,6 +609,10 @@ export default function Home() {
       params.set("page", "watch-later");
     }
 
+    if (currentPage === "home" && feedTab !== "videos") {
+      params.set("tab", feedTab);
+    }
+
     if (searchQuery) {
       params.set("search", searchQuery);
     }
@@ -624,6 +633,7 @@ export default function Home() {
     router.replace(newUrl, { scroll: false });
   }, [
     currentPage,
+    feedTab,
     searchQuery,
     filterListId,
     hideWatched,
@@ -2225,7 +2235,7 @@ export default function Home() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           title="Back to top"
           aria-label="Back to top"
-          className={`fixed bottom-6 right-6 z-50 rounded-full border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-card ${
+          className={`fixed bottom-6 right-6 z-50 cursor-pointer rounded-full border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-card ${
             showScrollTop
               ? "opacity-100"
               : "pointer-events-none translate-y-2 opacity-0"
