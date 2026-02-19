@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 import {
   getOIDCProvider,
   buildAuthorizationUrl,
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
     const cookieStore = await cookies();
     cookieStore.set("oidc_state", state, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(req),
       sameSite: "lax",
       maxAge: 600, // 10 minutes
       path: "/",
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
     // Store provider ID
     cookieStore.set("oidc_provider", providerId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(req),
       sameSite: "lax",
       maxAge: 600,
       path: "/",

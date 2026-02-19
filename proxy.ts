@@ -20,6 +20,13 @@ const publicPaths = [
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isStaticAsset = /\.[a-zA-Z0-9]+$/.test(pathname);
+
+  // Always allow direct access to static/public files.
+  // Without this, favicon/manifest/icon requests can be redirected to /login.
+  if (isStaticAsset) {
+    return NextResponse.next();
+  }
 
   // Check if setup is needed - redirect all non-public routes to setup
   if (needsSetup() && !publicPaths.some((path) => pathname.startsWith(path))) {

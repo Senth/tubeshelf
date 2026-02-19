@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { needsSetup } from "@/lib/setup";
 import { createUser, createSession } from "@/lib/auth";
+import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 import { migrateFromJson } from "@/lib/migrate";
 
 export async function POST(request: NextRequest) {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set("session", session.id, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(request),
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60, // 30 days
       path: "/",

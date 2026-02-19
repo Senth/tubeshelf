@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { handleOIDCCallback } from "@/lib/oidc";
 import { createSession, updateLastLogin } from "@/lib/auth";
+import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 
 export async function GET(req: Request) {
   try {
@@ -74,7 +75,7 @@ export async function GET(req: Request) {
     // Set session cookie on the response
     response.cookies.set("session", session.id, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(req),
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60, // 30 days
       path: "/",

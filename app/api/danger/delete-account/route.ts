@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getCurrentUser } from "@/lib/currentUser";
+import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 import { deleteUser } from "@/lib/users";
 
-export async function POST() {
+export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,7 +28,7 @@ export async function POST() {
   const cookieStore = await cookies();
   cookieStore.set("session", "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(req),
     sameSite: "lax",
     maxAge: 0,
     path: "/",

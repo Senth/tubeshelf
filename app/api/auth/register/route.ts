@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createUser, createSession, getUserByEmail } from "@/lib/auth";
+import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 import { readSettings } from "@/lib/settingsStore";
 import { needsSetup } from "@/lib/setup";
 
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
 
     response.cookies.set("session", session.id, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(req),
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60,
       path: "/",
