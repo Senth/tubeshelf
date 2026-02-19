@@ -84,6 +84,8 @@ const VideoPlayerComponent = ({
   const [currentTime, setCurrentTime] = useState(0);
   const shortcutsRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [hasRequestedComments, setHasRequestedComments] = useState(false);
   const [commentsSort, setCommentsSort] = useState<"top" | "new">("top");
   const [comments, setComments] = useState<PlayerComment[]>([]);
   const [commentsError, setCommentsError] = useState<string | null>(null);
@@ -93,6 +95,7 @@ const VideoPlayerComponent = ({
     undefined
   );
   const [commentsDisabled, setCommentsDisabled] = useState(false);
+  const [failedAvatarIds, setFailedAvatarIds] = useState<Set<string>>(new Set());
   const [replyThreads, setReplyThreads] = useState<Record<string, ReplyThreadState>>(
     {}
   );
@@ -108,9 +111,12 @@ const VideoPlayerComponent = ({
   };
 
   const ytVideoId = getYouTubeVideoId(videoUrl);
+  const displayChannelName = channelName?.trim() || "Unknown channel";
 
   useEffect(() => {
     // Reset comments state when switching videos.
+    setShowComments(false);
+    setHasRequestedComments(false);
     setCommentsSort("top");
     setComments([]);
     setCommentsError(null);
@@ -118,6 +124,7 @@ const VideoPlayerComponent = ({
     setLoadingMoreComments(false);
     setNextCommentsToken(undefined);
     setCommentsDisabled(false);
+    setFailedAvatarIds(new Set());
     setReplyThreads({});
     commentsRequestIdRef.current += 1;
     replyRequestIdRef.current = {};
@@ -347,11 +354,13 @@ const VideoPlayerComponent = ({
     }
   };
 
-  useEffect(() => {
-    loadCommentsPage({ sortOverride: "top" });
-    // Intentionally only on video change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ytVideoId]);
+  const openComments = () => {
+    setShowComments(true);
+    if (!hasRequestedComments || (commentsError && comments.length === 0)) {
+      setHasRequestedComments(true);
+      loadCommentsPage({ sortOverride: commentsSort });
+    }
+  };
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -376,6 +385,19 @@ const VideoPlayerComponent = ({
       if (playerRef.current) {
         playerRef.current.destroy();
       }
+    };
+  }, []);
+
+  // Prevent background page scrolling while player modal is open.
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
     };
   }, []);
 
@@ -730,11 +752,11 @@ const VideoPlayerComponent = ({
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col"
+      className="fixed inset-0 z-50 bg-black/95 flex flex-col overflow-hidden"
       style={isFullscreen ? { cursor: "none" } : undefined}
     >
       {/* Header */}
-      <div className="border-b border-white/10 bg-gradient-to-b from-black via-black to-transparent">
+      <div className="border-b border-white/10 bg-black/95">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
@@ -950,314 +972,345 @@ const VideoPlayerComponent = ({
         </div>
       </div>
 
-      {/* Video Container */}
-      <div className="flex-1 flex items-center justify-center min-h-0 px-4 py-6 overflow-hidden">
-        <div className="w-full h-full max-w-7xl relative rounded-xl overflow-hidden shadow-2xl">
-          {/* YouTube IFrame API player */}
-          <div ref={playerContainerRef} className="w-full h-full" />
-
-        </div>
-      </div>
-
-      {/* Comments Section */}
-      <div className="px-4 sm:px-6 lg:px-8 pb-4">
-        <div className="max-w-7xl mx-auto rounded-xl border border-white/10 bg-black/85 backdrop-blur-sm">
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
-            <div className="min-w-0">
-              <h2 className="text-white font-semibold text-sm">Comments</h2>
-              <p className="text-xs text-gray-400">
-                Loaded in small chunks, replies on demand
-              </p>
+      <div className="flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        <div className="px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-7xl mx-auto">
+            {/* Video Container */}
+            <div className="w-full aspect-video relative rounded-xl overflow-hidden shadow-lg bg-black">
+              <div ref={playerContainerRef} className="w-full h-full" />
             </div>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={commentsSort}
-                onChange={(e) => {
-                  const newSort = e.target.value === "new" ? "new" : "top";
-                  if (newSort === commentsSort) return;
-                  setCommentsSort(newSort);
-                  setComments([]);
-                  setCommentsError(null);
-                  setNextCommentsToken(undefined);
-                  setCommentsDisabled(false);
-                  setReplyThreads({});
-                  loadCommentsPage({ sortOverride: newSort });
-                }}
-                className="h-8 rounded-md border border-white/20 bg-black/70 px-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-white/30"
-                title="Sort comments"
-              >
-                <option value="top">Top</option>
-                <option value="new">Newest</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="max-h-80 overflow-y-auto px-4 py-3 space-y-3">
-            {commentsLoading && comments.length === 0 ? (
-              <div className="h-full min-h-[160px] flex items-center justify-center text-gray-300">
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Loading comments...
-              </div>
-            ) : commentsError ? (
-              <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
-                <p>{commentsError}</p>
+            {/* Channel Row + Comments Toggle */}
+            <div className="mt-4 border border-white/10 bg-black/90 rounded-xl px-4 sm:px-5 py-3">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
                 <button
-                  onClick={() => loadCommentsPage({ sortOverride: commentsSort })}
-                  className="mt-2 text-xs underline underline-offset-2 hover:text-red-100"
+                  onClick={() => {
+                    onChannelClick?.(displayChannelName);
+                    onClose();
+                  }}
+                  className="flex items-center gap-3 hover:bg-white/10 rounded-lg p-2 -m-2 transition-colors group cursor-pointer"
                 >
-                  Retry
-                </button>
-              </div>
-            ) : commentsDisabled ? (
-              <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
-                Comments are disabled for this video.
-              </div>
-            ) : comments.length === 0 ? (
-              <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
-                No comments available.
-              </div>
-            ) : (
-              comments.map((comment) => {
-                const thread = replyThreads[comment.id];
-                return (
-                  <article
-                    key={comment.id}
-                    className="rounded-lg border border-white/10 bg-white/5 p-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      {comment.authorAvatarUrl ? (
-                        <img
-                          src={getProxiedImageUrl(comment.authorAvatarUrl)}
-                          alt={comment.author}
-                          className="w-8 h-8 rounded-full ring-1 ring-white/10 flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-white/10 text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
-                          {comment.author.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                          <span className="font-semibold text-white truncate">
-                            {comment.author}
-                          </span>
-                          {comment.authorIsCreator && (
-                            <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
-                              Creator
-                            </span>
-                          )}
-                          {comment.pinned && (
-                            <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
-                              Pinned
-                            </span>
-                          )}
-                          {comment.publishedTime && (
-                            <span className="text-gray-400">{comment.publishedTime}</span>
-                          )}
-                        </div>
-
-                        <p className="mt-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
-                          {comment.text}
-                        </p>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                          {comment.likeCountText && (
-                            <span className="inline-flex items-center gap-1 text-gray-400">
-                              <ThumbsUp className="w-3 h-3" />
-                              <span>{comment.likeCountText}</span>
-                            </span>
-                          )}
-
-                          {(comment.replyCount || comment.repliesToken) && (
-                            <button
-                              onClick={() => {
-                                if (thread?.expanded) {
-                                  setReplyThreads((prev) => ({
-                                    ...prev,
-                                    [comment.id]: {
-                                      ...prev[comment.id],
-                                      expanded: false,
-                                    },
-                                  }));
-                                  return;
-                                }
-
-                                if (thread?.items?.length) {
-                                  setReplyThreads((prev) => ({
-                                    ...prev,
-                                    [comment.id]: {
-                                      ...prev[comment.id],
-                                      expanded: true,
-                                    },
-                                  }));
-                                  return;
-                                }
-
-                                const initialToken = comment.repliesToken;
-                                if (initialToken) {
-                                  loadReplies(comment.id, initialToken, false);
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 text-gray-300 hover:text-white transition-colors"
-                            >
-                              {thread?.expanded ? (
-                                <ChevronUp className="w-3 h-3" />
-                              ) : (
-                                <ChevronDown className="w-3 h-3" />
-                              )}
-                              <span>
-                                {comment.replyCountText ||
-                                  (comment.replyCount
-                                    ? `${comment.replyCount} replies`
-                                    : "Replies")}
-                              </span>
-                            </button>
-                          )}
-                        </div>
-
-                        {thread?.expanded && (
-                          <div className="mt-3 pl-3 border-l border-white/10 space-y-2">
-                            {thread.loading ? (
-                              <div className="text-xs text-gray-400 inline-flex items-center gap-2">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Loading replies...
-                              </div>
-                            ) : thread.error ? (
-                              <div className="text-xs text-red-300">
-                                {thread.error}
-                              </div>
-                            ) : thread.items.length === 0 ? (
-                              <div className="text-xs text-gray-400">
-                                No replies found.
-                              </div>
-                            ) : (
-                              <>
-                                {thread.items.map((reply) => (
-                                  <div
-                                    key={reply.id}
-                                    className="rounded-md border border-white/10 bg-black/30 p-2"
-                                  >
-                                    <div className="text-xs text-gray-300">
-                                      <span className="font-semibold text-white mr-2">
-                                        {reply.author}
-                                      </span>
-                                      {reply.publishedTime}
-                                    </div>
-                                    <p className="mt-1 text-sm text-gray-100 whitespace-pre-wrap break-words">
-                                      {reply.text}
-                                    </p>
-                                  </div>
-                                ))}
-                              </>
-                            )}
-
-                            {thread.nextPageToken && (
-                              <button
-                                onClick={() =>
-                                  thread.nextPageToken &&
-                                  loadReplies(comment.id, thread.nextPageToken, true)
-                                }
-                                disabled={thread.loadingMore}
-                                className="inline-flex items-center text-xs text-gray-300 hover:text-white disabled:opacity-50"
-                              >
-                                {thread.loadingMore ? (
-                                  <>
-                                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                                    Loading more replies...
-                                  </>
-                                ) : (
-                                  "Load more replies"
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                  {channelThumbnail ? (
+                    <img
+                      src={getProxiedImageUrl(channelThumbnail)}
+                      alt={displayChannelName}
+                      className="w-10 h-10 rounded-full ring-2 ring-white/10 group-hover:ring-white/30 transition-all"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center ring-2 ring-white/10 group-hover:ring-white/30 transition-all">
+                      <span className="text-white font-semibold text-sm">
+                        {displayChannelName.charAt(0).toUpperCase()}
+                      </span>
                     </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
+                  )}
+                  <div className="flex flex-col items-start">
+                    <span className="text-white font-medium group-hover:text-gray-100 transition-colors">
+                      {displayChannelName}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      Click to view channel videos
+                    </span>
+                  </div>
+                </button>
 
-          <div className="border-t border-white/10 px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <button
-                onClick={() =>
-                  nextCommentsToken &&
-                  loadCommentsPage({
-                    append: true,
-                    pageToken: nextCommentsToken,
-                    sortOverride: commentsSort,
-                  })
-                }
-                disabled={!nextCommentsToken || loadingMoreComments || commentsLoading}
-                className="inline-flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-2 transition-colors"
-              >
-                {loadingMoreComments ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Loading...
-                  </>
-                ) : (
-                  "Load more comments"
-                )}
-              </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => {
+                      if (showComments) {
+                        setShowComments(false);
+                      } else {
+                        openComments();
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors cursor-pointer"
+                    aria-expanded={showComments}
+                    aria-label="Toggle comments"
+                  >
+                    {showComments ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                    {showComments ? "Hide comments" : "View comments"}
+                  </button>
 
-              <a
-                href={youtubeUrlWithTimestamp}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-gray-300 hover:text-white underline underline-offset-2"
-              >
-                Open full thread on YouTube
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-white/10 bg-gradient-to-t from-black via-black to-transparent px-4 sm:px-6 lg:px-8 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between gap-4">
-            {/* Channel Info */}
-            <button
-              onClick={() => {
-                onChannelClick?.(channelName);
-                onClose();
-              }}
-              className="flex items-center gap-3 hover:bg-white/10 rounded-lg p-2 -m-2 transition-colors group cursor-pointer"
-            >
-              {channelThumbnail ? (
-                <img
-                  src={getProxiedImageUrl(channelThumbnail)}
-                  alt={channelName}
-                  className="w-10 h-10 rounded-full ring-2 ring-white/10 group-hover:ring-white/30 transition-all"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center ring-2 ring-white/10 group-hover:ring-white/30 transition-all">
-                  <span className="text-white font-semibold text-sm">
-                    {channelName.charAt(0).toUpperCase()}
+                  <span className="text-xs text-gray-500">
+                    Auto-marked as watched
                   </span>
                 </div>
-              )}
-              <div className="flex flex-col items-start">
-                <span className="text-white font-medium group-hover:text-gray-100 transition-colors">
-                  {channelName}
-                </span>
-                <span className="text-xs text-gray-500">
-                  Click to view channel videos
-                </span>
               </div>
-            </button>
+            </div>
 
-            {/* Auto-watched indicator */}
-            <span className="text-xs text-gray-500">
-              Auto-marked as watched
-            </span>
+            {showComments && (
+              <div className="mt-4 rounded-xl border border-white/10 bg-black/90">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+                  <h2 className="text-sm font-medium text-white">Comments</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowComments(false)}
+                      className="inline-flex items-center gap-1.5 text-xs text-gray-300 hover:text-white transition-colors cursor-pointer"
+                      aria-label="Collapse comments"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                      Hide comments
+                    </button>
+                    <select
+                      value={commentsSort}
+                      onChange={(e) => {
+                        const newSort = e.target.value === "new" ? "new" : "top";
+                        if (newSort === commentsSort) return;
+                        setCommentsSort(newSort);
+                        setComments([]);
+                        setCommentsError(null);
+                        setNextCommentsToken(undefined);
+                        setCommentsDisabled(false);
+                        setReplyThreads({});
+                        setHasRequestedComments(true);
+                        loadCommentsPage({ sortOverride: newSort });
+                      }}
+                      className="h-8 rounded-md border border-white/20 bg-black/70 px-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-white/30"
+                      title="Sort comments"
+                    >
+                      <option value="top">Top</option>
+                      <option value="new">Newest</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 space-y-3">
+                  {commentsLoading && comments.length === 0 ? (
+                    <div className="h-full min-h-[160px] flex items-center justify-center text-gray-300">
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Loading comments...
+                    </div>
+                  ) : commentsError ? (
+                    <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+                      <p>{commentsError}</p>
+                      <button
+                        onClick={() => loadCommentsPage({ sortOverride: commentsSort })}
+                        className="mt-2 text-xs underline underline-offset-2 hover:text-red-100"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : commentsDisabled ? (
+                    <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
+                      Comments are disabled for this video.
+                    </div>
+                  ) : comments.length === 0 ? (
+                    <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-gray-300">
+                      No comments available.
+                    </div>
+                  ) : (
+                    comments.map((comment) => {
+                      const thread = replyThreads[comment.id];
+                      return (
+                        <article
+                          key={comment.id}
+                          className="rounded-lg border border-white/10 bg-white/5 p-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            {comment.authorAvatarUrl &&
+                            !failedAvatarIds.has(comment.id) ? (
+                              <img
+                                src={getProxiedImageUrl(comment.authorAvatarUrl)}
+                                alt={comment.author}
+                                className="w-8 h-8 rounded-full ring-1 ring-white/10 flex-shrink-0"
+                                referrerPolicy="no-referrer"
+                                onError={() => {
+                                  setFailedAvatarIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(comment.id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-white/10 text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                                {comment.author.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                <span className="font-semibold text-white truncate">
+                                  {comment.author}
+                                </span>
+                                {comment.authorIsCreator && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
+                                    Creator
+                                  </span>
+                                )}
+                                {comment.pinned && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-gray-200">
+                                    Pinned
+                                  </span>
+                                )}
+                                {comment.publishedTime && (
+                                  <span className="text-gray-400">{comment.publishedTime}</span>
+                                )}
+                              </div>
+
+                              <p className="mt-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+                                {comment.text}
+                              </p>
+
+                              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                                {comment.likeCountText && (
+                                  <span className="inline-flex items-center gap-1 text-gray-400">
+                                    <ThumbsUp className="w-3 h-3" />
+                                    <span>{comment.likeCountText}</span>
+                                  </span>
+                                )}
+
+                                {(comment.replyCount || comment.repliesToken) && (
+                                  <button
+                                    onClick={() => {
+                                      if (thread?.expanded) {
+                                        setReplyThreads((prev) => ({
+                                          ...prev,
+                                          [comment.id]: {
+                                            ...prev[comment.id],
+                                            expanded: false,
+                                          },
+                                        }));
+                                        return;
+                                      }
+
+                                      if (thread?.items?.length) {
+                                        setReplyThreads((prev) => ({
+                                          ...prev,
+                                          [comment.id]: {
+                                            ...prev[comment.id],
+                                            expanded: true,
+                                          },
+                                        }));
+                                        return;
+                                      }
+
+                                      const initialToken = comment.repliesToken;
+                                      if (initialToken) {
+                                        loadReplies(comment.id, initialToken, false);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 text-gray-300 hover:text-white transition-colors"
+                                  >
+                                    {thread?.expanded ? (
+                                      <ChevronUp className="w-3 h-3" />
+                                    ) : (
+                                      <ChevronDown className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {comment.replyCountText ||
+                                        (comment.replyCount
+                                          ? `${comment.replyCount} replies`
+                                          : "Replies")}
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
+
+                              {thread?.expanded && (
+                                <div className="mt-3 pl-3 border-l border-white/10 space-y-2">
+                                  {thread.loading ? (
+                                    <div className="text-xs text-gray-400 inline-flex items-center gap-2">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Loading replies...
+                                    </div>
+                                  ) : thread.error ? (
+                                    <div className="text-xs text-red-300">
+                                      {thread.error}
+                                    </div>
+                                  ) : thread.items.length === 0 ? (
+                                    <div className="text-xs text-gray-400">
+                                      No replies found.
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {thread.items.map((reply) => (
+                                        <div
+                                          key={reply.id}
+                                          className="rounded-md border border-white/10 bg-black/30 p-2"
+                                        >
+                                          <div className="text-xs text-gray-300">
+                                            <span className="font-semibold text-white mr-2">
+                                              {reply.author}
+                                            </span>
+                                            {reply.publishedTime}
+                                          </div>
+                                          <p className="mt-1 text-sm text-gray-100 whitespace-pre-wrap break-words">
+                                            {reply.text}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </>
+                                  )}
+
+                                  {thread.nextPageToken && (
+                                    <button
+                                      onClick={() =>
+                                        thread.nextPageToken &&
+                                        loadReplies(comment.id, thread.nextPageToken, true)
+                                      }
+                                      disabled={thread.loadingMore}
+                                      className="inline-flex items-center text-xs text-gray-300 hover:text-white disabled:opacity-50"
+                                    >
+                                      {thread.loadingMore ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                          Loading more replies...
+                                        </>
+                                      ) : (
+                                        "Load more replies"
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="border-t border-white/10 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      onClick={() =>
+                        nextCommentsToken &&
+                        loadCommentsPage({
+                          append: true,
+                          pageToken: nextCommentsToken,
+                          sortOverride: commentsSort,
+                        })
+                      }
+                      disabled={!nextCommentsToken || loadingMoreComments || commentsLoading}
+                      className="inline-flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-2 transition-colors"
+                    >
+                      {loadingMoreComments ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Load more comments"
+                      )}
+                    </button>
+
+                    <a
+                      href={youtubeUrlWithTimestamp}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-gray-300 hover:text-white underline underline-offset-2"
+                    >
+                      Open full thread on YouTube
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

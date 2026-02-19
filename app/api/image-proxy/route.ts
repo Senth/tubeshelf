@@ -5,7 +5,8 @@ function isAllowedImageHost(hostname: string): boolean {
     hostname.endsWith("ytimg.com") ||
     hostname.endsWith("youtube.com") ||
     hostname.endsWith("yt3.googleusercontent.com") ||
-    hostname.endsWith("googleusercontent.com")
+    hostname.endsWith("googleusercontent.com") ||
+    hostname.endsWith("ggpht.com")
   );
 }
 

@@ -141,7 +141,9 @@ export function getProxiedImageUrl(url?: string | null): string {
     if (
       host.endsWith("ytimg.com") ||
       host.endsWith("youtube.com") ||
-      host.endsWith("yt3.googleusercontent.com")
+      host.endsWith("yt3.googleusercontent.com") ||
+      host.endsWith("googleusercontent.com") ||
+      host.endsWith("ggpht.com")
     ) {
       return `/api/image-proxy?url=${encodeURIComponent(url)}`;
     }
