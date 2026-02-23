@@ -61,7 +61,10 @@ function extractYouTubeInitialData(html: string): any {
 /**
  * Parse video renderer data from YouTube's internal format
  */
-function parseVideoRenderer(renderer: any): StandardVideo | null {
+function parseVideoRenderer(
+  renderer: any,
+  referenceNowMs: number
+): StandardVideo | null {
   try {
     const videoId = renderer.videoId;
     if (!videoId) return null;
@@ -111,7 +114,7 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
 
     // Try to parse relative time like "2 hours ago", "3 days ago"
     if (publishedText) {
-      const now = new Date();
+      const now = new Date(referenceNowMs);
       const timeMatch = publishedText.match(
         /(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago/i
       );
@@ -131,23 +134,15 @@ function parseVideoRenderer(renderer: any): StandardVideo | null {
             break;
           case "day":
             now.setDate(now.getDate() - value);
-            // Normalize to start of day for consistent sorting across refreshes
-            now.setHours(0, 0, 0, 0);
             break;
           case "week":
             now.setDate(now.getDate() - value * 7);
-            // Normalize to start of day
-            now.setHours(0, 0, 0, 0);
             break;
           case "month":
             now.setMonth(now.getMonth() - value);
-            // Normalize to start of day
-            now.setHours(0, 0, 0, 0);
             break;
           case "year":
             now.setFullYear(now.getFullYear() - value);
-            // Normalize to start of day
-            now.setHours(0, 0, 0, 0);
             break;
         }
         publishedAt = now.toISOString();
@@ -388,8 +383,9 @@ export async function fetchChannelVideos(
     }
 
     // Parse videos
+    const referenceNowMs = Date.now();
     const videos = videoRenderers
-      .map(parseVideoRenderer)
+      .map((renderer) => parseVideoRenderer(renderer, referenceNowMs))
       .filter((v): v is StandardVideo => v !== null)
       .slice(0, limit);
 
