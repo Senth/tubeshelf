@@ -17,6 +17,11 @@ const CACHE_DURATION = 1000; // 1 second cache to prevent duplicate requests
 // Queue for pending requests to coalesce while in-flight
 let pendingResolvers: Array<(result: any) => void> = [];
 
+type ItemSortMeta = {
+  channelOrder: number;
+  channelVideoIndex: number;
+};
+
 export async function GET(req: Request) {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get("session")?.value;
@@ -138,8 +143,12 @@ async function handleFeedRequest(
           const bTime = b.lastUploadedAt
             ? new Date(b.lastUploadedAt).getTime()
             : 0;
-          // Newer uploads first, then oldest ones
-          return bTime - aTime;
+          // Newer uploads first, then a deterministic tiebreaker
+          const timeDiff = bTime - aTime;
+          if (timeDiff !== 0) return timeDiff;
+          return String(a.channelId || "").localeCompare(
+            String(b.channelId || "")
+          );
         }
       );
 
@@ -176,6 +185,10 @@ async function handleFeedRequest(
     );
 
     const items: any[] = [];
+    const itemSortMeta = new WeakMap<object, ItemSortMeta>();
+    const channelOrderIndex = new Map(
+      channelIds.map((channelId, index) => [channelId, index])
+    );
     // Use a shared queue to avoid race conditions causing duplicate processing
     const queue = [...channelIds];
     // Track which channels had videos (for ranking updates)
@@ -253,13 +266,18 @@ async function handleFeedRequest(
             });
             latestUploadTime = mostRecent.publishedAt;
           }
-          regularVideos.forEach((video) => {
-            items.push({
+          regularVideos.forEach((video, channelVideoIndex) => {
+            const item = {
               ...video,
               channelTitle: video.channelTitle || meta?.title,
               thumbnail: video.thumbnail || meta?.thumbnail,
               channelId: video.channelId || current,
+            };
+            itemSortMeta.set(item, {
+              channelOrder: channelOrderIndex.get(item.channelId || current) ?? 0,
+              channelVideoIndex,
             });
+            items.push(item);
           });
           // Regular videos fetched
 
@@ -299,10 +317,30 @@ async function handleFeedRequest(
       );
     }
 
-    items.sort(
-      (a, b) =>
-        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-    );
+    items.sort((a, b) => {
+      const aTime = new Date(a.publishedAt).getTime();
+      const bTime = new Date(b.publishedAt).getTime();
+      const timeDiff = bTime - aTime;
+      if (timeDiff !== 0) return timeDiff;
+
+      const aMeta = itemSortMeta.get(a as object);
+      const bMeta = itemSortMeta.get(b as object);
+      if (aMeta && bMeta) {
+        const channelOrderDiff = aMeta.channelOrder - bMeta.channelOrder;
+        if (channelOrderDiff !== 0) return channelOrderDiff;
+
+        // Preserve YouTube's per-channel order when relative timestamps tie.
+        const channelVideoDiff = aMeta.channelVideoIndex - bMeta.channelVideoIndex;
+        if (channelVideoDiff !== 0) return channelVideoDiff;
+      }
+
+      const channelDiff = String(a.channelId || "").localeCompare(
+        String(b.channelId || "")
+      );
+      if (channelDiff !== 0) return channelDiff;
+
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    });
 
     // Log durations for debugging
     const videosWithDuration = items.filter((item) => item.duration);
