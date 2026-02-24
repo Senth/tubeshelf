@@ -276,6 +276,9 @@ const VideoPlayerComponent = ({
   const videoFrameRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<PlyrPlayer | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
+  const playerReadyRef = useRef(false);
+  const componentMountedRef = useRef(true);
+  const playerInstanceSeqRef = useRef(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPlayerSettingsMenu, setShowPlayerSettingsMenu] = useState(false);
@@ -358,6 +361,40 @@ const VideoPlayerComponent = ({
   useEffect(() => {
     onQualityChangeRef.current = onQualityChange;
   }, [onQualityChange]);
+
+  useEffect(() => {
+    playerReadyRef.current = playerReady;
+  }, [playerReady]);
+
+  useEffect(() => {
+    componentMountedRef.current = true;
+    return () => {
+      componentMountedRef.current = false;
+      playerReadyRef.current = false;
+      playerRef.current = null;
+    };
+  }, []);
+
+  const hasAttachedPlayerIframe = () => {
+    const container = playerContainerRef.current;
+    if (!container || !container.isConnected) return false;
+    const iframe = container.querySelector("iframe");
+    return !!iframe && iframe.isConnected;
+  };
+
+  const isLivePlayerInstance = (player?: PlyrPlayer | null) => {
+    if (!player) return false;
+    if (!componentMountedRef.current) return false;
+    if (!containerRef.current?.isConnected) return false;
+    if (!playerContainerRef.current?.isConnected) return false;
+    return playerRef.current === player;
+  };
+
+  const canCallPlayerApi = (player?: PlyrPlayer | null) => {
+    if (!isLivePlayerInstance(player)) return false;
+    if (!playerReadyRef.current) return false;
+    return hasAttachedPlayerIframe();
+  };
 
   useEffect(() => {
     sponsorSkipNoticeRef.current = sponsorSkipNotice;
@@ -588,6 +625,7 @@ const VideoPlayerComponent = ({
   const applyPreferredQuality = (player?: PlyrPlayer | null) => {
     const targetPlayer = player || playerRef.current;
     if (!targetPlayer) return;
+    if (!canCallPlayerApi(targetPlayer)) return;
 
     const parsedQuality = Number.parseInt(
       String(quality).replace(/[^0-9]/g, ""),
@@ -719,27 +757,50 @@ const VideoPlayerComponent = ({
     if (!debugOverlayEnabledRef.current) return;
     const targetPlayer = player || playerRef.current;
     if (!targetPlayer) return;
+    if (player && !isLivePlayerInstance(player)) return;
+    if (!player && !canCallPlayerApi(targetPlayer)) return;
 
-    const current = Number.isFinite(options?.currentTime)
-      ? Number(options?.currentTime)
-      : Number(targetPlayer.currentTime || 0);
-    const duration = Number.isFinite(options?.duration)
-      ? Number(options?.duration)
-      : Number(targetPlayer.duration || 0);
-    const volume = Math.max(0, Math.min(1, Number(targetPlayer.volume || 0)));
-    const muted = !!targetPlayer.muted;
+    let current = 0;
+    let duration = 0;
+    let volume = 0;
+    let muted = false;
+    try {
+      current = Number.isFinite(options?.currentTime)
+        ? Number(options?.currentTime)
+        : Number(targetPlayer.currentTime || 0);
+      duration = Number.isFinite(options?.duration)
+        ? Number(options?.duration)
+        : Number(targetPlayer.duration || 0);
+      volume = Math.max(0, Math.min(1, Number(targetPlayer.volume || 0)));
+      muted = !!targetPlayer.muted;
+    } catch {
+      return;
+    }
     const activeSegment = findSponsorSegmentAtTime(current, 0.05);
-    const qualityFromPlyr =
-      typeof targetPlayer.quality === "number" &&
-      Number.isFinite(targetPlayer.quality) &&
-      targetPlayer.quality > 0
-        ? `${Math.round(targetPlayer.quality)}p`
-        : typeof targetPlayer.quality === "string"
-          ? formatYouTubeQualityLabel(targetPlayer.quality)
-          : null;
-    const qualityFromYouTubeEmbed = formatYouTubeQualityLabel(
-      targetPlayer.embed?.getPlaybackQuality?.() || ""
-    );
+    let qualityFromPlyr: string | null = null;
+    try {
+      qualityFromPlyr =
+        typeof targetPlayer.quality === "number" &&
+        Number.isFinite(targetPlayer.quality) &&
+        targetPlayer.quality > 0
+          ? `${Math.round(targetPlayer.quality)}p`
+          : typeof targetPlayer.quality === "string"
+            ? formatYouTubeQualityLabel(targetPlayer.quality)
+            : null;
+    } catch {
+      qualityFromPlyr = null;
+    }
+
+    let qualityFromYouTubeEmbed: string | null = null;
+    if (canCallPlayerApi(targetPlayer)) {
+      try {
+        qualityFromYouTubeEmbed = formatYouTubeQualityLabel(
+          targetPlayer.embed?.getPlaybackQuality?.() || ""
+        );
+      } catch {
+        qualityFromYouTubeEmbed = null;
+      }
+    }
 
     setPlayerDebugSnapshot({
       quality: qualityFromPlyr || qualityFromYouTubeEmbed,
@@ -1448,6 +1509,16 @@ const VideoPlayerComponent = ({
   useEffect(() => {
     let disposed = false;
     let localPlayer: PlyrPlayer | null = null;
+    const playerInstanceSeq = ++playerInstanceSeqRef.current;
+
+    const isLocalPlayerLive = () =>
+      !disposed &&
+      componentMountedRef.current &&
+      playerInstanceSeqRef.current === playerInstanceSeq &&
+      !!localPlayer &&
+      playerRef.current === localPlayer &&
+      playerReadyRef.current &&
+      hasAttachedPlayerIframe();
 
     const mountPlyr = async () => {
       if (!playerContainerRef.current) return;
@@ -1462,7 +1533,7 @@ const VideoPlayerComponent = ({
           <iframe
             src="https://www.youtube.com/embed/${ytVideoId}?origin=${origin}&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&enablejsapi=1&start=${startSeconds}"
             allowfullscreen
-            allow="autoplay; fullscreen; picture-in-picture"
+            allow="autoplay; fullscreen"
             referrerpolicy="strict-origin-when-cross-origin"
             title="YouTube video player"
           ></iframe>
@@ -1497,12 +1568,14 @@ const VideoPlayerComponent = ({
           rel: 0,
           iv_load_policy: 3,
           modestbranding: 1,
+          noCookie: true,
         },
       });
 
       localPlayer.on("ready", () => {
         if (disposed) return;
         playerRef.current = localPlayer;
+        playerReadyRef.current = true;
         setPlayerReady(true);
         if (
           localPlayer &&
@@ -1524,7 +1597,7 @@ const VideoPlayerComponent = ({
       });
 
       localPlayer.on("timeupdate", () => {
-        if (disposed) return;
+        if (!isLocalPlayerLive()) return;
         const time = Number(localPlayer?.currentTime || 0);
         const duration = Number(localPlayer?.duration || 0);
         if (Number.isFinite(time)) {
@@ -1553,7 +1626,7 @@ const VideoPlayerComponent = ({
       });
 
       localPlayer.on("seeking", () => {
-        if (disposed || !localPlayer) return;
+        if (!isLocalPlayerLive()) return;
         const time = Number(localPlayer.currentTime || 0);
         if (!isSponsorProgrammaticSeek(time)) {
           armManualSponsorSeekGuard();
@@ -1561,7 +1634,7 @@ const VideoPlayerComponent = ({
       });
 
       localPlayer.on("seeked", () => {
-        if (disposed || !localPlayer) return;
+        if (!isLocalPlayerLive()) return;
         const time = Number(localPlayer.currentTime || 0);
         const duration = Number(localPlayer.duration || 0);
         if (Number.isFinite(time)) {
@@ -1594,7 +1667,7 @@ const VideoPlayerComponent = ({
       });
 
       localPlayer.on("qualitychange", () => {
-        if (!localPlayer) return;
+        if (!isLocalPlayerLive()) return;
         const q = localPlayer.quality;
         if (
           onQualityChangeRef.current &&
@@ -1608,21 +1681,23 @@ const VideoPlayerComponent = ({
       });
 
       localPlayer.on("ratechange", () => {
-        if (!localPlayer) return;
+        if (!isLocalPlayerLive()) return;
         showSpeedActionHud(localPlayer);
         updatePlayerDebugSnapshot(localPlayer);
       });
 
       localPlayer.on("volumechange", () => {
-        if (!localPlayer) return;
+        if (!isLocalPlayerLive()) return;
         updatePlayerDebugSnapshot(localPlayer);
       });
 
       localPlayer.on("enterfullscreen", () => {
+        if (disposed) return;
         setIsFullscreen(true);
         updatePlayerDebugSnapshot(localPlayer);
       });
       localPlayer.on("exitfullscreen", () => {
+        if (disposed) return;
         setIsFullscreen(false);
         updatePlayerDebugSnapshot(localPlayer);
       });
@@ -1637,16 +1712,24 @@ const VideoPlayerComponent = ({
     return () => {
       disposed = true;
       setPlayerReady(false);
+      playerReadyRef.current = false;
       setPlayerDuration(0);
       const player = localPlayer || playerRef.current;
+      if (playerRef.current === player) {
+        playerRef.current = null;
+      }
       if (player) {
-        try {
-          player.destroy();
-        } catch (err) {
-          console.warn("Failed to destroy Plyr instance:", err);
+        const canSafelyDestroy =
+          !!playerContainerRef.current?.isConnected &&
+          !!playerContainerRef.current?.querySelector("iframe")?.isConnected;
+        if (canSafelyDestroy) {
+          try {
+            player.destroy();
+          } catch (err) {
+            console.warn("Failed to destroy Plyr instance:", err);
+          }
         }
       }
-      playerRef.current = null;
       if (playerContainerRef.current) {
         playerContainerRef.current.innerHTML = "";
       }
@@ -1660,6 +1743,7 @@ const VideoPlayerComponent = ({
     const retryDelays = [250, 1000, 2500];
     const timers = retryDelays.map((delay) =>
       window.setTimeout(() => {
+        if (playerRef.current !== player) return;
         applyPreferredQuality(player);
         updatePlayerDebugSnapshot(player);
       }, delay)
@@ -1672,6 +1756,7 @@ const VideoPlayerComponent = ({
   useEffect(() => {
     if (!playerReady || !playerRef.current) return;
     const timer = window.setTimeout(() => {
+      if (!playerRef.current) return;
       applyPreferredQuality(playerRef.current);
       updatePlayerDebugSnapshot(playerRef.current);
     }, 120);
