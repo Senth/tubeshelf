@@ -2,17 +2,40 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
 import { resolveChannelId, fetchChannelFeed } from "@/lib/videoFetcher";
 import {
-  readSubscriptions,
-  writeSubscriptions,
-  StoredSubscription,
-} from "@/lib/subscriptionStore";
+  addSubscriptionToList,
+  readLists,
+  removeSubscriptionFromList,
+  type SubscriptionInList,
+} from "@/lib/subscriptionListStore";
+
+function getDefaultListId(userId: string) {
+  return `default-${userId}`;
+}
+
+function dedupeSubscriptionsByChannel(
+  lists: Array<{ subscriptions: SubscriptionInList[] }>
+): SubscriptionInList[] {
+  const seen = new Set<string>();
+  const result: SubscriptionInList[] = [];
+
+  for (const list of lists) {
+    for (const sub of list.subscriptions) {
+      if (seen.has(sub.channelId)) continue;
+      seen.add(sub.channelId);
+      result.push(sub);
+    }
+  }
+
+  return result;
+}
 
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const subs = await readSubscriptions();
+  const listsData = await readLists(user.id);
+  const subs = dedupeSubscriptionsByChannel(listsData.lists);
   return NextResponse.json(subs);
 }
 
@@ -36,14 +59,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const existing = await readSubscriptions();
+  const listsData = await readLists(user.id);
+  const existing = dedupeSubscriptionsByChannel(listsData.lists);
   if (existing.some((s) => s.channelId === channelId)) {
     return NextResponse.json({ error: "Already subscribed" }, { status: 409 });
   }
 
   try {
     const { meta } = await fetchChannelFeed(channelId);
-    const newSub: StoredSubscription = {
+    const newSub: SubscriptionInList = {
       id: channelId,
       channelId,
       title: meta.title || channelId,
@@ -52,8 +76,7 @@ export async function POST(req: Request) {
       addedAt: new Date().toISOString(),
     };
 
-    const updated = [...existing, newSub];
-    await writeSubscriptions(updated);
+    await addSubscriptionToList(getDefaultListId(user.id), newSub, user.id);
     return NextResponse.json(newSub, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(
@@ -64,14 +87,30 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const id = url.searchParams.get("id") || url.searchParams.get("channelId");
   if (!id) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const subs = await readSubscriptions();
-  const updated = subs.filter((s) => s.channelId !== id && s.id !== id);
-  await writeSubscriptions(updated);
-  return NextResponse.json({ ok: true });
+  const listsData = await readLists(user.id);
+  let removed = 0;
+
+  for (const list of listsData.lists) {
+    const matches = list.subscriptions.filter(
+      (s) => s.channelId === id || s.id === id
+    );
+    if (matches.length === 0) continue;
+    for (const match of matches) {
+      await removeSubscriptionFromList(list.id, match.channelId, user.id);
+      removed += 1;
+    }
+  }
+
+  return NextResponse.json({ ok: true, removed });
 }

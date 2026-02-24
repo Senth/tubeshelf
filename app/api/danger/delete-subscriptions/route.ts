@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import { writeSubscriptions } from "@/lib/subscriptionStore";
+import { getCurrentUser } from "@/lib/currentUser";
+import { clearAllSubscriptions } from "@/lib/subscriptionListStore";
 
 export async function POST() {
   try {
-    await writeSubscriptions([]);
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await clearAllSubscriptions(user.id);
     return NextResponse.json({
       success: true,
       message: "All subscriptions deleted",
