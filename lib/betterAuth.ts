@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
 import bcrypt from "bcryptjs";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db";
@@ -10,7 +12,11 @@ import { getOIDCProvider, getOIDCProviders, type OIDCProvider } from "@/lib/oidc
 
 const BCRYPT_ROUNDS = 12;
 const LEGACY_SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;
-const INSECURE_DEFAULT_BETTER_AUTH_SECRET = "tubeshelf-default-key-change-me";
+const GENERATED_BETTER_AUTH_SECRET_FILE = path.join(
+  process.cwd(),
+  "data",
+  ".better-auth-secret"
+);
 const BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS = [
   "Field created_at in table users has a different type in the database. Expected date but got TEXT.",
   "Field updated_at in table users has a different type in the database. Expected date but got TEXT.",
@@ -26,36 +32,99 @@ declare global {
   var __tubeshelfAuthSecretWarningLogged: boolean | undefined;
 }
 
-type AuthSecretSource = "BETTER_AUTH_SECRET" | "AUTH_SECRET" | "SECRET_KEY" | "default";
+type AuthSecretSource =
+  | "BETTER_AUTH_SECRET"
+  | "AUTH_SECRET"
+  | "SECRET_KEY"
+  | "generated-file"
+  | "generated-memory";
 
 type AuthSecretStatus = {
   source: AuthSecretSource;
-  isInsecureDefault: boolean;
+  isGeneratedFallback: boolean;
   isTooShort: boolean;
   length: number;
 };
+
+function generateRandomSecret(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function readPersistedGeneratedAuthSecret():
+  | { secret: string; source: "generated-file" }
+  | { secret: string; source: "generated-memory" } {
+  try {
+    if (existsSync(GENERATED_BETTER_AUTH_SECRET_FILE)) {
+      const existing = readFileSync(GENERATED_BETTER_AUTH_SECRET_FILE, "utf8").trim();
+      if (existing) {
+        return { secret: existing, source: "generated-file" };
+      }
+    }
+
+    const dataDir = path.dirname(GENERATED_BETTER_AUTH_SECRET_FILE);
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    }
+
+    const generated = generateRandomSecret();
+    try {
+      writeFileSync(GENERATED_BETTER_AUTH_SECRET_FILE, `${generated}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+      return { secret: generated, source: "generated-file" };
+    } catch (writeError: any) {
+      if (writeError?.code === "EEXIST") {
+        const existing = readFileSync(GENERATED_BETTER_AUTH_SECRET_FILE, "utf8").trim();
+        if (existing) {
+          return { secret: existing, source: "generated-file" };
+        }
+      }
+      console.warn(
+        `[Auth] Failed to persist generated BetterAuth secret at ${GENERATED_BETTER_AUTH_SECRET_FILE}. Using in-memory secret for this process only.`,
+        writeError
+      );
+      return { secret: generated, source: "generated-memory" };
+    }
+  } catch (error) {
+    const generated = generateRandomSecret();
+    console.warn(
+      `[Auth] Failed to load or create BetterAuth secret fallback file at ${GENERATED_BETTER_AUTH_SECRET_FILE}. Using in-memory secret for this process only.`,
+      error
+    );
+    return { secret: generated, source: "generated-memory" };
+  }
+}
 
 function resolveAuthSecret(): { secret: string; status: AuthSecretStatus } {
   const envSecret =
     process.env.BETTER_AUTH_SECRET ??
     process.env.AUTH_SECRET ??
-    process.env.SECRET_KEY ??
-    INSECURE_DEFAULT_BETTER_AUTH_SECRET;
+    process.env.SECRET_KEY;
 
-  const source: AuthSecretSource = process.env.BETTER_AUTH_SECRET
-    ? "BETTER_AUTH_SECRET"
-    : process.env.AUTH_SECRET
-      ? "AUTH_SECRET"
-      : process.env.SECRET_KEY
-        ? "SECRET_KEY"
-        : "default";
+  let secret: string;
+  let source: AuthSecretSource;
 
-  const length = envSecret.length;
+  if (envSecret) {
+    secret = envSecret;
+    source = process.env.BETTER_AUTH_SECRET
+      ? "BETTER_AUTH_SECRET"
+      : process.env.AUTH_SECRET
+        ? "AUTH_SECRET"
+        : "SECRET_KEY";
+  } else {
+    const generated = readPersistedGeneratedAuthSecret();
+    secret = generated.secret;
+    source = generated.source;
+  }
+
+  const length = secret.length;
   return {
-    secret: envSecret,
+    secret,
     status: {
       source,
-      isInsecureDefault: envSecret === INSECURE_DEFAULT_BETTER_AUTH_SECRET,
+      isGeneratedFallback: source === "generated-file" || source === "generated-memory",
       isTooShort: length < 32,
       length,
     },
@@ -64,15 +133,15 @@ function resolveAuthSecret(): { secret: string; status: AuthSecretStatus } {
 
 function warnIfAuthSecretIsInsecure() {
   const { status } = resolveAuthSecret();
-  if (!status.isInsecureDefault && !status.isTooShort) return;
+  if (!status.isGeneratedFallback && !status.isTooShort) return;
   if (globalThis.__tubeshelfAuthSecretWarningLogged) return;
   globalThis.__tubeshelfAuthSecretWarningLogged = true;
 
-  if (status.isInsecureDefault) {
+  if (status.isGeneratedFallback) {
     console.warn(
-      "[Auth] Insecure default BetterAuth secret is in use. Set BETTER_AUTH_SECRET (32+ chars) in production. Existing BetterAuth sessions will be invalidated when the secret changes."
+      "[Auth] No BETTER_AUTH_SECRET is configured. Using an auto-generated instance-local BetterAuth secret. Set BETTER_AUTH_SECRET (32+ chars) for portability and multi-instance deployments. Changing the secret will invalidate BetterAuth sessions."
     );
-    return;
+    if (!status.isTooShort) return;
   }
 
   console.warn(

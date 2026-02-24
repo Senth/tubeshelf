@@ -10,7 +10,8 @@ export async function GET() {
       oidcOnly: !!settings.oidcOnly,
       publicRegistration: !!settings.publicRegistration,
       warnings: {
-        insecureDefaultAuthSecret: authSecretStatus.isInsecureDefault,
+        generatedAuthSecretFallback: authSecretStatus.isGeneratedFallback,
+        insecureDefaultAuthSecret: false,
       },
     });
   } catch (error) {
@@ -20,7 +21,8 @@ export async function GET() {
       oidcOnly: false,
       publicRegistration: false,
       warnings: {
-        insecureDefaultAuthSecret: authSecretStatus.isInsecureDefault,
+        generatedAuthSecretFallback: authSecretStatus.isGeneratedFallback,
+        insecureDefaultAuthSecret: false,
       },
     });
   }

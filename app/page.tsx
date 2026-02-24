@@ -1647,17 +1647,17 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
-        {authWarnings.insecureDefaultAuthSecret && (
+        {authWarnings.generatedAuthSecretFallback && (
           <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-500" />
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  Insecure default auth secret is in use
+                  Auto-generated auth secret is in use
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Set <code>BETTER_AUTH_SECRET</code> (32+ chars) in the server
-                  environment. Sessions will be invalidated after changing it.
+                  environment. Changing the secret will log users out.
                 </p>
               </div>
             </div>

@@ -6,7 +6,8 @@ export async function GET(request: Request) {
   const user = await getCurrentUser(request);
   const authSecretStatus = getAuthSecretStatus();
   const warnings = {
-    insecureDefaultAuthSecret: authSecretStatus.isInsecureDefault,
+    generatedAuthSecretFallback: authSecretStatus.isGeneratedFallback,
+    insecureDefaultAuthSecret: false,
   };
 
   if (!user) {

@@ -12,7 +12,7 @@ export interface AuthUser {
 }
 
 export interface AuthWarnings {
-  insecureDefaultAuthSecret: boolean;
+  generatedAuthSecretFallback: boolean;
 }
 
 interface UseAuthResult {
@@ -26,7 +26,7 @@ interface UseAuthResult {
 export function useAuth(): UseAuthResult {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [warnings, setWarnings] = useState<AuthWarnings>({
-    insecureDefaultAuthSecret: false,
+    generatedAuthSecretFallback: false,
   });
   const [loading, setLoading] = useState(true);
 
@@ -39,7 +39,9 @@ export function useAuth(): UseAuthResult {
 
       const data = await res.json().catch(() => null);
       setWarnings({
-        insecureDefaultAuthSecret: !!data?.warnings?.insecureDefaultAuthSecret,
+        generatedAuthSecretFallback:
+          !!data?.warnings?.generatedAuthSecretFallback ||
+          !!data?.warnings?.insecureDefaultAuthSecret,
       });
 
       if (!res.ok) {
@@ -50,7 +52,7 @@ export function useAuth(): UseAuthResult {
       setUser(data.user || null);
     } catch {
       setUser(null);
-      setWarnings({ insecureDefaultAuthSecret: false });
+      setWarnings({ generatedAuthSecretFallback: false });
     }
   }, []);
 
