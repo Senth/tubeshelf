@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
-import { getUserFromSession } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/currentUser";
 
 const CONCURRENCY = 4;
 
@@ -23,9 +22,7 @@ type ItemSortMeta = {
 };
 
 export async function GET(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

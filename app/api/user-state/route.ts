@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { readUserState, writeUserState, UserState } from "@/lib/userStateStore";
-import { getUserFromSession } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/currentUser";
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -16,9 +13,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
+  const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

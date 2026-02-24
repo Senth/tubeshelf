@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { createUser, createSession, getUserByEmail } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
+import { APIError } from "better-auth";
+import {
+  appendSetCookieHeaders,
+  getAuth,
+  mapBetterAuthUser,
+} from "@/lib/betterAuth";
 import { readSettings } from "@/lib/settingsStore";
 import { needsSetup } from "@/lib/setup";
 
@@ -49,44 +53,50 @@ export async function POST(req: Request) {
       );
     }
 
-    if (getUserByEmail(email)) {
-      return NextResponse.json(
-        { error: "Email already in use" },
-        { status: 409 }
-      );
+    const auth = await getAuth(req);
+    const result = await auth.api.signUpEmail({
+      body: {
+        email: email.toLowerCase(),
+        password,
+        name: name || email.split("@")[0],
+      },
+      headers: req.headers,
+      returnHeaders: true,
+      returnStatus: true,
+    });
+
+    const mappedUser = mapBetterAuthUser((result as any).response?.user);
+    if (!mappedUser) {
+      throw new Error("Missing user in BetterAuth sign-up response");
     }
 
-    const user = await createUser({
-      email,
-      name: name || email.split("@")[0],
-      password,
-      isAdmin: false,
-      isDefaultAdmin: false,
-    });
-
-    const session = createSession(user.id);
-
-    const response = NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isAdmin: user.isAdmin,
-        oidcProvider: user.oidcProvider,
-        authType: "local",
+    const response = NextResponse.json(
+      {
+        user: {
+          id: mappedUser.id,
+          email: mappedUser.email,
+          name: mappedUser.name,
+          isAdmin: mappedUser.isAdmin,
+          oidcProvider: mappedUser.oidcProvider,
+          authType: mappedUser.authType,
+        },
       },
-    });
+      { status: (result as any).status || 200 }
+    );
 
-    response.cookies.set("session", session.id, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60,
-      path: "/",
-    });
-
+    appendSetCookieHeaders(response.headers, (result as any).headers);
     return response;
   } catch (error) {
+    if (error instanceof APIError) {
+      const message = (error as any).message || "";
+      if (message.toLowerCase().includes("already")) {
+        return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      }
+      return NextResponse.json(
+        { error: "Registration failed" },
+        { status: (error as any).statusCode || 400 }
+      );
+    }
     console.error("[Auth] Registration failed:", error);
     return NextResponse.json(
       { error: "Registration failed" },

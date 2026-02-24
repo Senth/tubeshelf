@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { APIError } from "better-auth";
 import { getCurrentUser } from "@/lib/currentUser";
-import { authenticateUser, updateUserPassword } from "@/lib/auth";
+import { appendSetCookieHeaders, getAuth } from "@/lib/betterAuth";
 
 export async function PUT(req: Request) {
   const user = await getCurrentUser();
@@ -35,14 +36,40 @@ export async function PUT(req: Request) {
     );
   }
 
-  const validUser = await authenticateUser(user.email, currentPassword);
-  if (!validUser) {
-    return NextResponse.json(
-      { error: "Current password is incorrect" },
-      { status: 400 }
-    );
-  }
+  try {
+    const auth = await getAuth(req);
+    const result = await auth.api.changePassword({
+      body: {
+        currentPassword,
+        newPassword,
+        // Preserve current UX more closely than revoking all sessions.
+        revokeOtherSessions: true,
+      },
+      headers: req.headers,
+      returnHeaders: true,
+      returnStatus: true,
+    });
 
-  await updateUserPassword(user.id, newPassword);
-  return NextResponse.json({ success: true });
+    const response = NextResponse.json(
+      { success: true },
+      { status: (result as any).status || 200 }
+    );
+    appendSetCookieHeaders(response.headers, (result as any).headers);
+    return response;
+  } catch (error) {
+    if (error instanceof APIError) {
+      const message = String((error as any).message || "");
+      if (message.toLowerCase().includes("invalid password")) {
+        return NextResponse.json(
+          { error: "Current password is incorrect" },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Failed to update password" },
+        { status: (error as any).statusCode || 400 }
+      );
+    }
+    throw error;
+  }
 }

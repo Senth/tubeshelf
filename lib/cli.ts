@@ -1,6 +1,6 @@
 
 import { getDb } from "./db";
-import { getUserByEmail, updateUserPassword } from "./auth";
+import { getUserByEmail, updateUserPassword } from "./users";
 import { readSettings, writeSettings } from "./settingsStore";
 import { getOIDCProviders } from "./oidc";
 

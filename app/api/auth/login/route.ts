@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { authenticateUser, createSession } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
+import { APIError } from "better-auth";
+import {
+  appendSetCookieHeaders,
+  getAuth,
+  mapBetterAuthUser,
+} from "@/lib/betterAuth";
 import { readSettings } from "@/lib/settingsStore";
 
 function isValidEmail(email: string): boolean {
@@ -37,36 +41,45 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await authenticateUser(email, password);
-    if (!user) {
+    const auth = await getAuth(req);
+    const result = await auth.api.signInEmail({
+      body: { email: email.toLowerCase(), password },
+      headers: req.headers,
+      returnHeaders: true,
+      returnStatus: true,
+    });
+
+    const mappedUser = mapBetterAuthUser((result as any).response?.user);
+    if (!mappedUser) {
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
       );
     }
 
-    const session = createSession(user.id);
-    const response = NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isAdmin: user.isAdmin,
-        oidcProvider: user.oidcProvider,
-        authType: user.oidcProvider ? "oidc" : "local",
+    const response = NextResponse.json(
+      {
+        user: {
+          id: mappedUser.id,
+          email: mappedUser.email,
+          name: mappedUser.name,
+          isAdmin: mappedUser.isAdmin,
+          oidcProvider: mappedUser.oidcProvider,
+          authType: mappedUser.authType,
+        },
       },
-    });
+      { status: (result as any).status || 200 }
+    );
 
-    response.cookies.set("session", session.id, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60,
-      path: "/",
-    });
-
+    appendSetCookieHeaders(response.headers, (result as any).headers);
     return response;
   } catch (error) {
+    if (error instanceof APIError) {
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
     console.error("[Auth] Login failed:", error);
     return NextResponse.json({ error: "Login failed" }, { status: 500 });
   }

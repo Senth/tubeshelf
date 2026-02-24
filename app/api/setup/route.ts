@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { needsSetup } from "@/lib/setup";
-import { createUser, createSession } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
+import { getDb } from "@/lib/db";
+import {
+  appendSetCookieHeaders,
+  getAuth,
+  mapBetterAuthUser,
+} from "@/lib/betterAuth";
 import { migrateFromJson } from "@/lib/migrate";
 
 export async function POST(request: NextRequest) {
@@ -38,14 +42,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create admin user
-    const user = await createUser({
-      email,
-      name,
-      password,
-      isAdmin: true,
-      isDefaultAdmin: true,
+    const auth = await getAuth(request);
+    const signUp = await auth.api.signUpEmail({
+      body: {
+        email: String(email).trim().toLowerCase(),
+        name: String(name).trim(),
+        password: String(password),
+      },
+      headers: request.headers,
+      returnHeaders: true,
+      returnStatus: true,
     });
+
+    const createdUser = mapBetterAuthUser((signUp as any).response?.user);
+    if (!createdUser) {
+      throw new Error("Failed to create admin user");
+    }
+
+    // Mark the first user as the default admin in the existing schema.
+    getDb()
+      .prepare(
+        "UPDATE users SET is_admin = 1, is_default_admin = 1 WHERE id = ?"
+      )
+      .run(createdUser.id);
 
     // Run migration after first user creation (force)
     try {
@@ -54,26 +73,16 @@ export async function POST(request: NextRequest) {
       console.error("[Migration] Error after admin creation:", e);
     }
 
-    // Create session
-    const session = createSession(user.id);
-
-    // Set session cookie
     const response = NextResponse.json({
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isAdmin: user.isAdmin,
+        id: createdUser.id,
+        email: createdUser.email,
+        name: createdUser.name,
+        isAdmin: true,
       },
     });
 
-    response.cookies.set("session", session.id, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(request),
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60, // 30 days
-      path: "/",
-    });
+    appendSetCookieHeaders(response.headers, (signUp as any).headers);
 
     return response;
   } catch (error: any) {

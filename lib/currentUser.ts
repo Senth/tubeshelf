@@ -1,21 +1,22 @@
-import { cookies } from "next/headers";
-import { getUserFromSession, type User } from "./auth";
+import { headers } from "next/headers";
+import {
+  getSessionFromRequest,
+  getSessionFromHeaderBag,
+  mapBetterAuthUser,
+  type AppAuthUser,
+} from "./betterAuth";
 
-export interface CurrentUser extends User {
-  authType: "local" | "oidc";
-}
+export interface CurrentUser extends AppAuthUser {}
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-  const user = getUserFromSession(sessionId);
-
-  if (!user) {
-    return null;
+export async function getCurrentUser(
+  request?: Request
+): Promise<CurrentUser | null> {
+  if (request) {
+    const session = await getSessionFromRequest(request);
+    return mapBetterAuthUser(session?.user);
   }
 
-  return {
-    ...user,
-    authType: user.oidcProvider ? "oidc" : "local",
-  };
+  const headerStore = await headers();
+  const session = await getSessionFromHeaderBag(new Headers(headerStore));
+  return mapBetterAuthUser(session?.user);
 }

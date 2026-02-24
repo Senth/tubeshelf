@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { deleteSession } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
+import { getAuth } from "@/lib/betterAuth";
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("session")?.value;
-
-  if (sessionId) {
-    deleteSession(sessionId);
+  try {
+    const auth = await getAuth(req);
+    return await auth.api.signOut({
+      headers: req.headers,
+      asResponse: true,
+    });
+  } catch {
+    // Keep logout idempotent for clients even if BetterAuth rejects the request.
+    return NextResponse.json({ success: true });
   }
-
-  const response = NextResponse.json({ success: true });
-  response.cookies.set("session", "", {
-    httpOnly: true,
-    secure: shouldUseSecureCookies(req),
-    sameSite: "lax",
-    maxAge: 0,
-    path: "/",
-  });
-
-  return response;
 }

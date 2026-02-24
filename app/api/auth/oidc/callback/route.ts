@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { handleOIDCCallback } from "@/lib/oidc";
-import { createSession, updateLastLogin } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
+import { getAuth } from "@/lib/betterAuth";
 
 export async function GET(req: Request) {
   try {
@@ -31,17 +29,9 @@ export async function GET(req: Request) {
       );
     }
 
-    // Verify state
     const cookieStore = await cookies();
-    const savedState = cookieStore.get("oidc_state")?.value;
-    const providerId = cookieStore.get("oidc_provider")?.value;
-
-    if (!savedState || savedState !== state) {
-      return NextResponse.json(
-        { error: "Invalid state parameter" },
-        { status: 400 }
-      );
-    }
+    const providerId =
+      searchParams.get("provider") || cookieStore.get("oidc_provider")?.value;
 
     if (!providerId) {
       return NextResponse.json(
@@ -50,38 +40,19 @@ export async function GET(req: Request) {
       );
     }
 
-    // Get provider and auto-detect redirect URI
-    const { getOIDCProvider, buildRedirectUri } = await import("@/lib/oidc");
-    const provider = getOIDCProvider(providerId);
-    if (!provider) {
-      return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
-    }
-
-    // Auto-detect redirect URI from request, or use configured one
-    const redirectUri = provider.redirectUri || buildRedirectUri(req);
-
-    // Handle callback and get/create user
-    const user = await handleOIDCCallback(providerId, code, redirectUri, true);
-
-    // Update last login
-    updateLastLogin(user.id);
-
-    // Create session
-    const session = createSession(user.id);
-
-    // Create redirect response
-    const response = NextResponse.redirect(`${baseUrl}/`);
-
-    // Set session cookie on the response
-    response.cookies.set("session", session.id, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60, // 30 days
-      path: "/",
+    const auth = await getAuth(req);
+    return await auth.api.oAuth2Callback({
+      headers: req.headers,
+      params: { providerId },
+      query: {
+        code,
+        state,
+        error: error || undefined,
+        error_description: searchParams.get("error_description") || undefined,
+        iss: searchParams.get("iss") || undefined,
+      },
+      asResponse: true,
     });
-
-    return response;
   } catch (error) {
     console.error("[OIDC] Callback error:", error);
     const forwardedHost = req.headers.get("x-forwarded-host");

@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
-import {
-  getOIDCProvider,
-  buildAuthorizationUrl,
-  generateOIDCState,
-  buildRedirectUri,
-} from "@/lib/oidc";
+import { APIError } from "better-auth";
+import { appendSetCookieHeaders, getAuth } from "@/lib/betterAuth";
+import { getOIDCProvider } from "@/lib/oidc";
+
+function getBaseUrl(req: Request): string {
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  const url = new URL(req.url);
+  return forwardedHost
+    ? `${forwardedProto || url.protocol.replace(":", "")}://${forwardedHost}`
+    : `${url.protocol}//${url.host}`;
+}
 
 export async function GET(req: Request) {
   try {
@@ -25,21 +30,30 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Invalid provider" }, { status: 404 });
     }
 
-    // Generate state for CSRF protection
-    const state = generateOIDCState();
-
-    // Store state in cookie for verification
-    const cookieStore = await cookies();
-    cookieStore.set("oidc_state", state, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: "lax",
-      maxAge: 600, // 10 minutes
-      path: "/",
+    const baseUrl = getBaseUrl(req);
+    const auth = await getAuth(req);
+    const result = await auth.api.signInWithOAuth2({
+      body: {
+        providerId,
+        callbackURL: `${baseUrl}/`,
+        newUserCallbackURL: `${baseUrl}/`,
+        errorCallbackURL: `${baseUrl}/`,
+        disableRedirect: true,
+      },
+      headers: req.headers,
+      returnHeaders: true,
+      returnStatus: true,
     });
 
-    // Store provider ID
-    cookieStore.set("oidc_provider", providerId, {
+    const url = (result as any).response?.url;
+    if (!url) {
+      throw new Error("Missing OIDC redirect URL");
+    }
+
+    const response = NextResponse.redirect(url);
+
+    // Preserve compatibility with the existing callback route that resolves provider ID from a cookie.
+    response.cookies.set("oidc_provider", providerId, {
       httpOnly: true,
       secure: shouldUseSecureCookies(req),
       sameSite: "lax",
@@ -47,13 +61,16 @@ export async function GET(req: Request) {
       path: "/",
     });
 
-    // Auto-detect redirect URI from request, or use configured one
-    const redirectUri = provider.redirectUri || buildRedirectUri(req);
+    appendSetCookieHeaders(response.headers, (result as any).headers);
 
-    const authUrl = await buildAuthorizationUrl(provider, redirectUri, state);
-
-    return NextResponse.redirect(authUrl);
+    return response;
   } catch (error) {
+    if (error instanceof APIError) {
+      return NextResponse.json(
+        { error: (error as any).message || "Authorization failed" },
+        { status: (error as any).statusCode || 400 }
+      );
+    }
     console.error("[OIDC] Authorization error:", error);
     return NextResponse.json(
       { error: "Authorization failed" },

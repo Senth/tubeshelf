@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
-import { getUserByEmail, updateUser } from "@/lib/auth";
+import { getUserByEmail, updateUser } from "@/lib/users";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

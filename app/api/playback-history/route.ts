@@ -9,10 +9,24 @@ import {
   type PlaybackSession,
 } from "@/lib/playbackHistoryStore";
 
+function isClientAbortError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeCode = "code" in error ? String((error as any).code || "") : "";
+  const maybeMessage =
+    "message" in error ? String((error as any).message || "").toLowerCase() : "";
+  const maybeName = "name" in error ? String((error as any).name || "") : "";
+  return (
+    maybeCode === "ECONNRESET" ||
+    maybeName === "AbortError" ||
+    maybeMessage === "aborted" ||
+    maybeMessage.includes("aborted")
+  );
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Check if user is authenticated
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -41,7 +55,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Check if user is authenticated
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -50,6 +64,10 @@ export async function POST(request: NextRequest) {
     await savePlaybackSession(session, user.id);
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (isClientAbortError(error)) {
+      // Browser refresh/close can abort in-flight progress writes in dev.
+      return new NextResponse(null, { status: 204 });
+    }
     console.error("[Playback History] POST error:", error);
     return NextResponse.json(
       { error: "Failed to save playback session" },
@@ -61,7 +79,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     // Check if user is authenticated
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
