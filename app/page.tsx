@@ -138,7 +138,7 @@ export default function Home() {
   const [initialProgress, setInitialProgress] = useState(0);
   const [playerQuality, setPlayerQuality] = useState<
     "360p" | "480p" | "720p" | "1080p"
-  >("720p");
+  >("1080p");
 
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
@@ -815,6 +815,12 @@ export default function Home() {
     subscriptionLists,
   ]);
 
+  // Keep player default quality synced with saved settings (best-effort for YouTube iframe).
+  useEffect(() => {
+    if (!settings?.defaultPlayerResolution) return;
+    setPlayerQuality(settings.defaultPlayerResolution);
+  }, [settings?.defaultPlayerResolution]);
+
   // Helper function to persist user state in background.
   // Writes are serialized to avoid races between rapid updates.
   const persistUserState = async (
@@ -1038,6 +1044,9 @@ export default function Home() {
       // Prevent hash change event from re-triggering
       closingPlayerRef.current = true;
 
+      // Apply saved default player resolution when opening each video.
+      setPlayerQuality(settings?.defaultPlayerResolution ?? "1080p");
+
       // Set player state first
       setPlayerVideo({
         videoUrl,
@@ -1060,7 +1069,7 @@ export default function Home() {
         closingPlayerRef.current = false;
       }, 50);
     },
-    []
+    [settings?.defaultPlayerResolution]
   );
 
   const handleClosePlayer = useCallback(() => {
@@ -1088,6 +1097,7 @@ export default function Home() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      keepalive: true,
       body: JSON.stringify({
         videoId: playerVideo.videoId,
         videoTitle: playerVideo.title,
@@ -2212,7 +2222,29 @@ export default function Home() {
             setSearchQuery(searchQuery === channelName ? "" : channelName)
           }
           quality={playerQuality}
+          defaultResolution={settings?.defaultPlayerResolution ?? "1080p"}
           onQualityChange={(q) => setPlayerQuality(q as typeof playerQuality)}
+          sponsorBlockEnabled={settings?.sponsorBlockEnabled ?? true}
+          onSponsorBlockEnabledChange={(enabled) => {
+            setSettings((prev) =>
+              prev ? { ...prev, sponsorBlockEnabled: enabled } : prev
+            );
+            void handleSaveSettings({ sponsorBlockEnabled: enabled });
+          }}
+          debugOverlayEnabled={settings?.playerDebugEnabled ?? false}
+          onDebugOverlayEnabledChange={(enabled) => {
+            setSettings((prev) =>
+              prev ? { ...prev, playerDebugEnabled: enabled } : prev
+            );
+            void handleSaveSettings({ playerDebugEnabled: enabled });
+          }}
+          onDefaultResolutionChange={(res) => {
+            setPlayerQuality(res);
+            setSettings((prev) =>
+              prev ? { ...prev, defaultPlayerResolution: res } : prev
+            );
+            void handleSaveSettings({ defaultPlayerResolution: res });
+          }}
           onProgress={handlePlayerProgress}
           initialProgress={initialProgress}
         />

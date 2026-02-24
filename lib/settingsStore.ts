@@ -5,6 +5,9 @@ export interface AppSettings {
   defaultSortOrder: "newest" | "oldest";
   theme: "light" | "dark" | "system";
   videoPlayerMode: "built-in" | "new-tab";
+  defaultPlayerResolution: "360p" | "480p" | "720p" | "1080p";
+  sponsorBlockEnabled: boolean;
+  playerDebugEnabled: boolean;
   fetchMethod: "standard" | "rss";
   oidcOnly: boolean;
   publicRegistration: boolean;
@@ -14,6 +17,9 @@ export const defaultSettings: AppSettings = {
   defaultSortOrder: "newest",
   theme: "system",
   videoPlayerMode: "built-in",
+  defaultPlayerResolution: "1080p",
+  sponsorBlockEnabled: true,
+  playerDebugEnabled: false,
   fetchMethod: "standard",
   oidcOnly: false,
   publicRegistration: false,
@@ -69,6 +75,9 @@ export async function writeSettings(
     "defaultSortOrder",
     "theme",
     "videoPlayerMode",
+    "defaultPlayerResolution",
+    "sponsorBlockEnabled",
+    "playerDebugEnabled",
     "fetchMethod",
     "oidcOnly",
     "publicRegistration",
