@@ -41,6 +41,8 @@ services:
     user: "1000:1000"
     security_opt:
       - no-new-privileges:true
+    environment:
+      BETTER_AUTH_SECRET: "replace-with-a-random-32+-char-secret"
     volumes:
       - ./data:/app/data
 ```
@@ -51,6 +53,9 @@ Start the container:
 # Create data directory with correct permissions
 mkdir -p data
 chown 1000:1000 data
+
+# Generate a strong BetterAuth secret (use this value in docker-compose.yml)
+openssl rand -base64 32
 
 # Start TubeShelf
 docker compose up -d
