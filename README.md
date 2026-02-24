@@ -42,7 +42,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      BETTER_AUTH_SECRET: "replace-with-a-random-32+-char-secret"
+      - BETTER_AUTH_SECRET="replace-with-a-random-32+-char-secret"
     volumes:
       - ./data:/app/data
 ```
