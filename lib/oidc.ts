@@ -1,18 +1,45 @@
 import { getDb } from "./db";
 import crypto from "crypto";
 
-// Encryption key derivation - uses a stable key from environment or generates from db path
-function getEncryptionKey(): Buffer {
-  const secret =
+const LEGACY_DEFAULT_OIDC_ENCRYPTION_SECRET = "tubeshelf-default-key-change-me";
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __tubeshelfOidcEncryptionWarningLogged: boolean | undefined;
+}
+
+function getConfiguredEncryptionSecret(): string | null {
+  return (
     process.env.OIDC_ENCRYPTION_KEY ||
+    process.env.BETTER_AUTH_SECRET ||
+    process.env.AUTH_SECRET ||
     process.env.SECRET_KEY ||
-    "tubeshelf-default-key-change-me";
+    null
+  );
+}
+
+function deriveEncryptionKey(secret: string): Buffer {
   return crypto.scryptSync(secret, "tubeshelf-oidc-salt", 32);
+}
+
+function warnMissingOIDCEncryptionKeyOnce() {
+  if (globalThis.__tubeshelfOidcEncryptionWarningLogged) return;
+  globalThis.__tubeshelfOidcEncryptionWarningLogged = true;
+  console.warn(
+    "[OIDC] No OIDC_ENCRYPTION_KEY/BETTER_AUTH_SECRET configured. Existing legacy OIDC secrets can still be read if they used the historical default key, but creating/updating OIDC providers requires a configured secret."
+  );
 }
 
 // Encrypt client secret before storing
 function encryptSecret(plaintext: string): string {
-  const key = getEncryptionKey();
+  const configuredSecret = getConfiguredEncryptionSecret();
+  if (!configuredSecret) {
+    warnMissingOIDCEncryptionKeyOnce();
+    throw new Error(
+      "OIDC_ENCRYPTION_KEY (or BETTER_AUTH_SECRET) must be configured before storing OIDC client secrets"
+    );
+  }
+  const key = deriveEncryptionKey(configuredSecret);
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([
@@ -32,24 +59,49 @@ function decryptSecret(ciphertext: string): string {
   if (!ciphertext.includes(":")) {
     return ciphertext;
   }
-  try {
-    const key = getEncryptionKey();
-    const [ivB64, authTagB64, encryptedB64] = ciphertext.split(":");
-    const iv = Buffer.from(ivB64, "base64");
-    const authTag = Buffer.from(authTagB64, "base64");
-    const encrypted = Buffer.from(encryptedB64, "base64");
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(authTag);
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]);
-    return decrypted.toString("utf8");
-  } catch (error) {
-    // If decryption fails, assume it's plaintext (migration case)
-    console.warn("[OIDC] Failed to decrypt secret, assuming plaintext");
+
+  const [ivB64, authTagB64, encryptedB64] = ciphertext.split(":");
+  if (!ivB64 || !authTagB64 || !encryptedB64) {
     return ciphertext;
   }
+
+  const tryDecryptWithSecret = (secret: string): string | null => {
+    try {
+      const key = deriveEncryptionKey(secret);
+      const iv = Buffer.from(ivB64, "base64");
+      const authTag = Buffer.from(authTagB64, "base64");
+      const encrypted = Buffer.from(encryptedB64, "base64");
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([
+        decipher.update(encrypted),
+        decipher.final(),
+      ]);
+      return decrypted.toString("utf8");
+    } catch {
+      return null;
+    }
+  };
+
+  const configuredSecret = getConfiguredEncryptionSecret();
+  if (configuredSecret) {
+    const decrypted = tryDecryptWithSecret(configuredSecret);
+    if (decrypted !== null) {
+      return decrypted;
+    }
+  }
+
+  const legacyDecrypted = tryDecryptWithSecret(LEGACY_DEFAULT_OIDC_ENCRYPTION_SECRET);
+  if (legacyDecrypted !== null) {
+    console.warn(
+      "[OIDC] Decrypted client secret with legacy default key. Configure OIDC_ENCRYPTION_KEY or BETTER_AUTH_SECRET and rotate/re-save the provider secret."
+    );
+    return legacyDecrypted;
+  }
+
+  // If decryption fails, assume it's plaintext (migration case)
+  console.warn("[OIDC] Failed to decrypt secret, assuming plaintext");
+  return ciphertext;
 }
 
 export interface OIDCProvider {
