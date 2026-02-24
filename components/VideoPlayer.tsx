@@ -5,20 +5,203 @@ import {
   X,
   ExternalLink,
   Keyboard,
+  Settings,
   Loader2,
   ThumbsUp,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
+  FastForward,
+  Rewind,
+  Gauge,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 
-// YouTube IFrame API types
-declare global {
-  interface Window {
-    YT: any;
-    onYouTubeIframeAPIReady: () => void;
+type SponsorBlockSegment = {
+  segment: [number, number];
+  UUID: string;
+  category: string;
+  actionType?: string;
+  votes?: number;
+  locked?: number;
+  description?: string;
+};
+
+type SponsorSkipNotice = {
+  kind: "skipped" | "unskipped";
+  uuid: string;
+  category: string;
+  start: number;
+  end: number;
+  skippedTo?: number;
+};
+
+type SponsorSkipSuppression = {
+  uuid: string;
+  start: number;
+  end: number;
+  expiresAtMs: number;
+  seenInside: boolean;
+};
+
+type SponsorProgrammaticSeek = {
+  targetTime: number;
+  expiresAtMs: number;
+};
+
+type SponsorManualSeekGuard = {
+  expiresAtMs: number;
+};
+
+type PlayerActionHud =
+  | {
+      kind: "seek";
+      direction: "forward" | "backward";
+      totalSeconds: number;
+    }
+  | {
+      kind: "volume";
+      muted: boolean;
+      percent: number;
+    }
+  | {
+      kind: "speed";
+      rate: number;
+    };
+
+type PlayerDebugSnapshot = {
+  quality: string | null;
+  speed: number;
+  volumePercent: number;
+  muted: boolean;
+  currentTime: number;
+  duration: number;
+  fullscreen: boolean;
+  sponsorCategory: string | null;
+  sponsorSegmentsCount: number;
+};
+
+type PlyrEventName =
+  | "play"
+  | "pause"
+  | "ended"
+  | "ready"
+  | "timeupdate"
+  | "seeking"
+  | "ratechange"
+  | "volumechange"
+  | "qualitychange"
+  | "seeked"
+  | "enterfullscreen"
+  | "exitfullscreen";
+
+type PlyrPlayer = {
+  currentTime: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  speed: number;
+  quality: number | string;
+  embed?: {
+    getPlaybackQuality?: () => string;
+    getAvailableQualityLevels?: () => string[];
+    setPlaybackQuality?: (quality: string) => void;
+    setPlaybackQualityRange?: (...qualities: string[]) => void;
+  };
+  fullscreen?: {
+    enabled: boolean;
+    toggle: () => void;
+  };
+  togglePlay: (toggle?: boolean) => boolean;
+  toggleCaptions: (toggle?: boolean) => void;
+  on: (event: PlyrEventName, callback: () => void) => void;
+  destroy: () => void;
+};
+
+type PlyrConstructor = new (
+  target: HTMLElement,
+  options?: Record<string, unknown>
+) => PlyrPlayer;
+
+const SPONSORBLOCK_API_BASE = "https://sponsor.ajay.app";
+const SPONSORBLOCK_AUTO_SKIP_CATEGORIES = ["sponsor"] as const;
+
+const SPONSORBLOCK_CATEGORY_LABELS: Record<string, string> = {
+  sponsor: "Sponsor",
+};
+
+const SPONSORBLOCK_CATEGORY_COLORS: Record<string, string> = {
+  sponsor: "#00d400",
+};
+
+const SPONSOR_SKIP_NOTICE_MS = 5000;
+const SPONSOR_SKIP_INFO_MS = 5000;
+const SPONSOR_SKIP_UNDO_SUPPRESSION_MS = 20_000;
+const SPONSOR_SKIP_NOTICE_HOLD_POLL_MS = 500;
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) return hex;
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  if (![r, g, b].every(Number.isFinite)) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const formatDebugTime = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(
+      2,
+      "0"
+    )}`;
   }
-}
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+};
+
+const formatYouTubeQualityLabel = (quality: string) => {
+  const q = quality.trim();
+  if (!q) return null;
+  const map: Record<string, string> = {
+    auto: "Auto",
+    default: "Auto",
+    highres: "Highres",
+    hd2160: "2160p",
+    hd1440: "1440p",
+    hd1080: "1080p",
+    hd720: "720p",
+    large: "480p",
+    medium: "360p",
+    small: "240p",
+    tiny: "144p",
+  };
+  return map[q] || q;
+};
+
+const toYouTubeQualityKey = (quality: string) => {
+  const normalized = quality.trim().toLowerCase();
+  const numeric = Number.parseInt(normalized.replace(/[^0-9]/g, ""), 10);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric >= 2160) return "hd2160";
+    if (numeric >= 1440) return "hd1440";
+    if (numeric >= 1080) return "hd1080";
+    if (numeric >= 720) return "hd720";
+    if (numeric >= 480) return "large";
+    if (numeric >= 360) return "medium";
+    if (numeric >= 240) return "small";
+    return "tiny";
+  }
+  if (normalized === "auto") return "auto";
+  return normalized || null;
+};
+
+const normalizeYouTubeQualityKey = (quality: string) => quality.trim().toLowerCase();
 
 interface VideoPlayerProps {
   videoId: string;
@@ -31,7 +214,15 @@ interface VideoPlayerProps {
   onMarkWatched?: () => void;
   onChannelClick?: (channelName: string) => void;
   quality?: "360p" | "480p" | "720p" | "1080p";
+  defaultResolution?: "360p" | "480p" | "720p" | "1080p";
   onQualityChange?: (quality: string) => void;
+  sponsorBlockEnabled?: boolean;
+  onSponsorBlockEnabledChange?: (enabled: boolean) => void | Promise<void>;
+  debugOverlayEnabled?: boolean;
+  onDebugOverlayEnabledChange?: (enabled: boolean) => void | Promise<void>;
+  onDefaultResolutionChange?: (
+    resolution: "360p" | "480p" | "720p" | "1080p"
+  ) => void | Promise<void>;
   onProgress?: (progress: number, duration: number) => void;
   initialProgress?: number;
 }
@@ -70,19 +261,28 @@ const VideoPlayerComponent = ({
   onClose,
   onMarkWatched,
   onChannelClick,
-  quality = "720p",
+  quality = "1080p",
+  defaultResolution = "1080p",
   onQualityChange,
+  sponsorBlockEnabled = true,
+  onSponsorBlockEnabledChange,
+  debugOverlayEnabled = false,
+  onDebugOverlayEnabledChange,
+  onDefaultResolutionChange,
   onProgress,
   initialProgress = 0,
 }: VideoPlayerProps) => {
-  const [startTime, setStartTime] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
+  const videoFrameRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<PlyrPlayer | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [playerReady, setPlayerReady] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showPlayerSettingsMenu, setShowPlayerSettingsMenu] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
   const shortcutsRef = useRef<HTMLDivElement>(null);
+  const playerSettingsMenuRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [hasRequestedComments, setHasRequestedComments] = useState(false);
@@ -101,6 +301,44 @@ const VideoPlayerComponent = ({
   );
   const commentsRequestIdRef = useRef(0);
   const replyRequestIdRef = useRef<Record<string, number>>({});
+  const onMarkWatchedRef = useRef(onMarkWatched);
+  const onQualityChangeRef = useRef(onQualityChange);
+  const sponsorSegmentsRef = useRef<SponsorBlockSegment[]>([]);
+  const lastSponsorSkipRef = useRef<{
+    uuid: string;
+    category: string;
+    start: number;
+    end: number;
+    skippedTo: number;
+    atMs: number;
+  } | null>(null);
+  const sponsorSkipSuppressionRef = useRef<SponsorSkipSuppression | null>(null);
+  const sponsorProgrammaticSeekRef = useRef<SponsorProgrammaticSeek | null>(null);
+  const sponsorManualSeekGuardRef = useRef<SponsorManualSeekGuard | null>(null);
+  const sponsorNoticeTimerRef = useRef<number | null>(null);
+  const sponsorNoticeExpiresAtRef = useRef<number | null>(null);
+  const sponsorViewedRef = useRef<Set<string>>(new Set());
+  const [sponsorSegments, setSponsorSegments] = useState<SponsorBlockSegment[]>([]);
+  const [sponsorSkipNotice, setSponsorSkipNotice] = useState<SponsorSkipNotice | null>(
+    null
+  );
+  const sponsorSkipNoticeRef = useRef<SponsorSkipNotice | null>(null);
+  const [sponsorSkipNoticeNowMs, setSponsorSkipNoticeNowMs] = useState(0);
+  const [sponsorSeekThumbColor, setSponsorSeekThumbColor] = useState("#ff0000");
+  const sponsorSeekThumbColorRef = useRef("#ff0000");
+  const sponsorBlockEnabledRef = useRef(sponsorBlockEnabled);
+  const debugOverlayEnabledRef = useRef(debugOverlayEnabled);
+  const [playerActionHud, setPlayerActionHud] = useState<PlayerActionHud | null>(
+    null
+  );
+  const playerActionHudTimerRef = useRef<number | null>(null);
+  const seekHudAccumRef = useRef<{
+    direction: "forward" | "backward";
+    totalSeconds: number;
+    atMs: number;
+  } | null>(null);
+  const [playerDebugSnapshot, setPlayerDebugSnapshot] =
+    useState<PlayerDebugSnapshot | null>(null);
 
   // Extract video ID from YouTube URL
   const getYouTubeVideoId = (url: string) => {
@@ -112,6 +350,838 @@ const VideoPlayerComponent = ({
 
   const ytVideoId = getYouTubeVideoId(videoUrl);
   const displayChannelName = channelName?.trim() || "Unknown channel";
+
+  useEffect(() => {
+    onMarkWatchedRef.current = onMarkWatched;
+  }, [onMarkWatched]);
+
+  useEffect(() => {
+    onQualityChangeRef.current = onQualityChange;
+  }, [onQualityChange]);
+
+  useEffect(() => {
+    sponsorSkipNoticeRef.current = sponsorSkipNotice;
+  }, [sponsorSkipNotice]);
+
+  useEffect(() => {
+    sponsorBlockEnabledRef.current = sponsorBlockEnabled;
+  }, [sponsorBlockEnabled]);
+
+  useEffect(() => {
+    debugOverlayEnabledRef.current = debugOverlayEnabled;
+    if (!debugOverlayEnabled) {
+      setPlayerDebugSnapshot(null);
+      return;
+    }
+    updatePlayerDebugSnapshot();
+  }, [debugOverlayEnabled]);
+
+  useEffect(() => {
+    if (!sponsorSkipNotice) return;
+    setSponsorSkipNoticeNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      setSponsorSkipNoticeNowMs(Date.now());
+    }, 200);
+    return () => window.clearInterval(interval);
+  }, [sponsorSkipNotice]);
+
+  useEffect(() => {
+    return () => {
+      if (sponsorNoticeTimerRef.current) {
+        window.clearTimeout(sponsorNoticeTimerRef.current);
+        sponsorNoticeTimerRef.current = null;
+      }
+      sponsorNoticeExpiresAtRef.current = null;
+      clearPlayerActionHudTimer();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!debugOverlayEnabled) return;
+    updatePlayerDebugSnapshot();
+  }, [debugOverlayEnabled, isFullscreen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    sponsorSegmentsRef.current = [];
+    setSponsorSegments([]);
+    lastSponsorSkipRef.current = null;
+    sponsorSkipSuppressionRef.current = null;
+    sponsorProgrammaticSeekRef.current = null;
+    sponsorManualSeekGuardRef.current = null;
+    sponsorViewedRef.current = new Set();
+    setSponsorSkipNotice(null);
+    sponsorSeekThumbColorRef.current = "#ff0000";
+    setSponsorSeekThumbColor("#ff0000");
+    if (sponsorNoticeTimerRef.current) {
+      window.clearTimeout(sponsorNoticeTimerRef.current);
+      sponsorNoticeTimerRef.current = null;
+    }
+    sponsorNoticeExpiresAtRef.current = null;
+    if (!sponsorBlockEnabled) {
+      syncSponsorSeekThumbColor(Number(playerRef.current?.currentTime || 0));
+      updatePlayerDebugSnapshot(playerRef.current);
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
+
+    const loadSponsorSegments = async () => {
+      try {
+        const url = new URL("/api/skipSegments", SPONSORBLOCK_API_BASE);
+        url.searchParams.set("videoID", ytVideoId);
+        url.searchParams.set("service", "YouTube");
+        for (const category of SPONSORBLOCK_AUTO_SKIP_CATEGORIES) {
+          url.searchParams.append("category", category);
+        }
+
+        const res = await fetch(url.toString(), {
+          signal: controller.signal,
+          mode: "cors",
+          cache: "no-store",
+        });
+
+        if (res.status === 404) {
+          sponsorSegmentsRef.current = [];
+          setSponsorSegments([]);
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error(`SponsorBlock API ${res.status}`);
+        }
+
+        const data = (await res.json()) as SponsorBlockSegment[];
+        if (cancelled || !Array.isArray(data)) return;
+
+        const normalized = data
+          .filter((segment): segment is SponsorBlockSegment => {
+            return (
+              !!segment &&
+              Array.isArray(segment.segment) &&
+              segment.segment.length === 2 &&
+              typeof segment.segment[0] === "number" &&
+              typeof segment.segment[1] === "number" &&
+              segment.segment[1] > segment.segment[0] &&
+              typeof segment.category === "string" &&
+              (!!segment.UUID || segment.UUID === "")
+            );
+          })
+          .filter(
+            (segment) =>
+              segment.category === "sponsor" &&
+              (!segment.actionType || segment.actionType === "skip")
+          )
+          .sort((a, b) => {
+            const startDiff = a.segment[0] - b.segment[0];
+            if (startDiff !== 0) return startDiff;
+            return a.segment[1] - b.segment[1];
+          });
+
+        sponsorSegmentsRef.current = normalized;
+        setSponsorSegments(normalized);
+        syncSponsorSeekThumbColor(Number(playerRef.current?.currentTime || 0));
+        updatePlayerDebugSnapshot(playerRef.current);
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          (err.name === "AbortError" || controller.signal.aborted)
+        ) {
+          return;
+        }
+        sponsorSegmentsRef.current = [];
+        setSponsorSegments([]);
+        syncSponsorSeekThumbColor(Number(playerRef.current?.currentTime || 0));
+        updatePlayerDebugSnapshot(playerRef.current);
+        console.warn("[VideoPlayer] SponsorBlock unavailable:", err);
+      }
+    };
+
+    void loadSponsorSegments();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [ytVideoId, sponsorBlockEnabled]);
+
+  const toggleFullscreen = async () => {
+    try {
+      const player = playerRef.current;
+
+      const fullscreenElement =
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement;
+
+      const container = containerRef.current;
+      const fullscreenTarget = videoFrameRef.current || containerRef.current;
+      if (!container || !fullscreenTarget) return;
+
+      const isPlayerFullscreen =
+        !!fullscreenElement &&
+        (fullscreenElement === fullscreenTarget ||
+          (fullscreenElement instanceof Node &&
+            fullscreenTarget.contains(fullscreenElement)) ||
+          (fullscreenElement instanceof Node &&
+            fullscreenElement.contains(fullscreenTarget)) ||
+          fullscreenElement === container ||
+          (fullscreenElement instanceof Node &&
+            container.contains(fullscreenElement)));
+
+      if (isPlayerFullscreen) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        } else if (player?.fullscreen?.enabled) {
+          // Last-resort fallback for environments where Plyr emulates fullscreen.
+          player.fullscreen.toggle();
+        }
+        container.focus();
+        return;
+      }
+
+      if (fullscreenTarget.requestFullscreen) {
+        await fullscreenTarget.requestFullscreen();
+      } else if ((fullscreenTarget as any).webkitRequestFullscreen) {
+        await (fullscreenTarget as any).webkitRequestFullscreen();
+      } else if ((fullscreenTarget as any).mozRequestFullScreen) {
+        await (fullscreenTarget as any).mozRequestFullScreen();
+      } else if ((fullscreenTarget as any).msRequestFullscreen) {
+        await (fullscreenTarget as any).msRequestFullscreen();
+      } else if (player?.fullscreen?.enabled) {
+        // Fallback only if the native Fullscreen API is unavailable.
+        player.fullscreen.toggle();
+      }
+
+      // Keep focus on the app player, not the iframe, so shortcuts keep working.
+      container.focus();
+    } catch (err) {
+      console.error("Fullscreen error:", err);
+    }
+  };
+
+  const seekBy = (seconds: number) => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      const nextTime = Math.max(
+        0,
+        Math.min(player.duration || 0, player.currentTime + seconds)
+      );
+      player.currentTime = nextTime;
+      setCurrentTime(Math.floor(nextTime));
+    } catch (err) {
+      console.error("Seek error:", err);
+    }
+  };
+
+  const applyPreferredQuality = (player?: PlyrPlayer | null) => {
+    const targetPlayer = player || playerRef.current;
+    if (!targetPlayer) return;
+
+    const parsedQuality = Number.parseInt(
+      String(quality).replace(/[^0-9]/g, ""),
+      10
+    );
+    if (!Number.isFinite(parsedQuality) || parsedQuality <= 0) return;
+
+    try {
+      targetPlayer.quality = parsedQuality;
+    } catch {
+      // Ignore unsupported provider quality selections.
+    }
+
+    const embed = targetPlayer.embed;
+    const requestedKey = toYouTubeQualityKey(String(quality));
+    if (!embed || !requestedKey || requestedKey === "auto") return;
+
+    try {
+      const availableLevels = embed
+        .getAvailableQualityLevels?.()
+        ?.map((level) => normalizeYouTubeQualityKey(level))
+        .filter(Boolean);
+      const availableSet = availableLevels ? new Set(availableLevels) : null;
+      const requestedNormalized = normalizeYouTubeQualityKey(requestedKey);
+
+      // If exact match isn't reported yet, still try requesting it; YouTube
+      // often populates available levels after initial buffering starts.
+      if (!availableSet || availableSet.size === 0 || availableSet.has(requestedNormalized)) {
+        try {
+          embed.setPlaybackQualityRange?.(requestedKey, requestedKey);
+        } catch {
+          // Some YT API versions reject the 2-arg range call; try single arg.
+          try {
+            embed.setPlaybackQualityRange?.(requestedKey);
+          } catch {
+            // Ignore unsupported method signatures.
+          }
+        }
+        embed.setPlaybackQuality?.(requestedKey);
+      } else {
+        // Best effort fallback to highest available quality.
+        const fallbackOrder = [
+          "highres",
+          "hd2160",
+          "hd1440",
+          "hd1080",
+          "hd720",
+          "large",
+          "medium",
+          "small",
+          "tiny",
+        ];
+        const fallback = fallbackOrder.find((key) => availableSet.has(key));
+        if (fallback) {
+          try {
+            embed.setPlaybackQualityRange?.(fallback, fallback);
+          } catch {
+            try {
+              embed.setPlaybackQualityRange?.(fallback);
+            } catch {
+              // Ignore unsupported method signatures.
+            }
+          }
+          embed.setPlaybackQuality?.(fallback);
+        }
+      }
+    } catch {
+      // Ignore provider-specific quality API errors.
+    }
+  };
+
+  const getPlayerFullscreenState = () => {
+    const fullscreenElement =
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).mozFullScreenElement ||
+      (document as any).msFullscreenElement ||
+      null;
+
+    if (!fullscreenElement) return false;
+
+    const frame = videoFrameRef.current;
+    const container = containerRef.current;
+    if (frame) {
+      if (
+        fullscreenElement === frame ||
+        (fullscreenElement instanceof Node && frame.contains(fullscreenElement)) ||
+        (fullscreenElement instanceof Node && fullscreenElement.contains(frame))
+      ) {
+        return true;
+      }
+    }
+    if (container) {
+      if (
+        fullscreenElement === container ||
+        (fullscreenElement instanceof Node &&
+          container.contains(fullscreenElement)) ||
+        (fullscreenElement instanceof Node &&
+          fullscreenElement.contains(container))
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const findSponsorSegmentAtTime = (time: number, epsilon = 0.15) => {
+    if (!sponsorBlockEnabledRef.current) return null;
+    if (!Number.isFinite(time)) return null;
+    return (
+      sponsorSegmentsRef.current.find((segment) => {
+        const [start, end] = segment.segment;
+        return (
+          Number.isFinite(start) &&
+          Number.isFinite(end) &&
+          end > start &&
+          time >= start - epsilon &&
+          time < end - 0.05
+        );
+      }) || null
+    );
+  };
+
+  const updatePlayerDebugSnapshot = (
+    player?: PlyrPlayer | null,
+    options?: { currentTime?: number; duration?: number }
+  ) => {
+    if (!debugOverlayEnabledRef.current) return;
+    const targetPlayer = player || playerRef.current;
+    if (!targetPlayer) return;
+
+    const current = Number.isFinite(options?.currentTime)
+      ? Number(options?.currentTime)
+      : Number(targetPlayer.currentTime || 0);
+    const duration = Number.isFinite(options?.duration)
+      ? Number(options?.duration)
+      : Number(targetPlayer.duration || 0);
+    const volume = Math.max(0, Math.min(1, Number(targetPlayer.volume || 0)));
+    const muted = !!targetPlayer.muted;
+    const activeSegment = findSponsorSegmentAtTime(current, 0.05);
+    const qualityFromPlyr =
+      typeof targetPlayer.quality === "number" &&
+      Number.isFinite(targetPlayer.quality) &&
+      targetPlayer.quality > 0
+        ? `${Math.round(targetPlayer.quality)}p`
+        : typeof targetPlayer.quality === "string"
+          ? formatYouTubeQualityLabel(targetPlayer.quality)
+          : null;
+    const qualityFromYouTubeEmbed = formatYouTubeQualityLabel(
+      targetPlayer.embed?.getPlaybackQuality?.() || ""
+    );
+
+    setPlayerDebugSnapshot({
+      quality: qualityFromPlyr || qualityFromYouTubeEmbed,
+      speed:
+        typeof targetPlayer.speed === "number" && Number.isFinite(targetPlayer.speed)
+          ? targetPlayer.speed
+          : 1,
+      volumePercent: muted ? 0 : Math.round(volume * 100),
+      muted,
+      currentTime: Number.isFinite(current) ? current : 0,
+      duration: Number.isFinite(duration) ? duration : 0,
+      fullscreen: getPlayerFullscreenState(),
+      sponsorCategory: activeSegment?.category || null,
+      sponsorSegmentsCount: sponsorSegmentsRef.current.length,
+    });
+  };
+
+  const syncSponsorSeekThumbColor = (time: number) => {
+    const activeSegment = sponsorBlockEnabledRef.current
+      ? findSponsorSegmentAtTime(time, 0.05)
+      : null;
+    const nextColor = activeSegment
+      ? SPONSORBLOCK_CATEGORY_COLORS[activeSegment.category] || "#22c55e"
+      : "#ff0000";
+    if (sponsorSeekThumbColorRef.current !== nextColor) {
+      sponsorSeekThumbColorRef.current = nextColor;
+      setSponsorSeekThumbColor(nextColor);
+    }
+  };
+
+  const suppressSponsorSegment = (
+    segment: SponsorBlockSegment,
+    options?: { seenInside?: boolean; durationMs?: number }
+  ) => {
+    if (!sponsorBlockEnabledRef.current) return;
+    const now = Date.now();
+    const [start, end] = segment.segment;
+    sponsorSkipSuppressionRef.current = {
+      uuid: segment.UUID,
+      start,
+      end,
+      expiresAtMs:
+        now +
+        (options?.durationMs ??
+          Math.max(SPONSOR_SKIP_UNDO_SUPPRESSION_MS, (end - start + 6) * 1000)),
+      seenInside: options?.seenInside ?? false,
+    };
+  };
+
+  const markSponsorProgrammaticSeek = (targetTime: number) => {
+    sponsorProgrammaticSeekRef.current = {
+      targetTime,
+      expiresAtMs: Date.now() + 1200,
+    };
+  };
+
+  const isSponsorProgrammaticSeek = (time: number) => {
+    const pending = sponsorProgrammaticSeekRef.current;
+    if (!pending) return false;
+    if (Date.now() >= pending.expiresAtMs) {
+      sponsorProgrammaticSeekRef.current = null;
+      return false;
+    }
+    return Number.isFinite(time) && Math.abs(time - pending.targetTime) < 1.5;
+  };
+
+  const armManualSponsorSeekGuard = () => {
+    sponsorManualSeekGuardRef.current = {
+      expiresAtMs: Date.now() + 2000,
+    };
+  };
+
+  const hasActiveManualSponsorSeekGuard = () => {
+    const guard = sponsorManualSeekGuardRef.current;
+    if (!guard) return false;
+    if (Date.now() >= guard.expiresAtMs) {
+      sponsorManualSeekGuardRef.current = null;
+      return false;
+    }
+    return true;
+  };
+
+  const clearPlayerActionHudTimer = () => {
+    if (playerActionHudTimerRef.current) {
+      window.clearTimeout(playerActionHudTimerRef.current);
+      playerActionHudTimerRef.current = null;
+    }
+  };
+
+  const showPlayerActionHud = (hud: PlayerActionHud, durationMs = 900) => {
+    clearPlayerActionHudTimer();
+    setPlayerActionHud(hud);
+    playerActionHudTimerRef.current = window.setTimeout(() => {
+      setPlayerActionHud((current) => {
+        if (!current) return null;
+        if (current.kind !== hud.kind) return current;
+        if (hud.kind === "seek" && current.kind === "seek") {
+          return current.direction === hud.direction &&
+            current.totalSeconds === hud.totalSeconds
+            ? null
+            : current;
+        }
+        if (hud.kind === "volume" && current.kind === "volume") {
+          return current.muted === hud.muted && current.percent === hud.percent
+            ? null
+            : current;
+        }
+        if (hud.kind === "speed" && current.kind === "speed") {
+          return Math.abs(current.rate - hud.rate) < 0.001 ? null : current;
+        }
+        return current;
+      });
+      playerActionHudTimerRef.current = null;
+    }, durationMs);
+  };
+
+  const showSeekActionHud = (seconds: number) => {
+    const direction = seconds >= 0 ? "forward" : "backward";
+    const absSeconds = Math.abs(seconds);
+    const now = Date.now();
+    const prev = seekHudAccumRef.current;
+    const totalSeconds =
+      prev && prev.direction === direction && now - prev.atMs < 900
+        ? prev.totalSeconds + absSeconds
+        : absSeconds;
+    seekHudAccumRef.current = { direction, totalSeconds, atMs: now };
+    showPlayerActionHud({ kind: "seek", direction, totalSeconds }, 850);
+  };
+
+  const showVolumeActionHud = (player: PlyrPlayer) => {
+    const muted = !!player.muted || Number(player.volume || 0) <= 0;
+    const percent = muted
+      ? 0
+      : Math.round(Math.max(0, Math.min(1, Number(player.volume || 0))) * 100);
+    showPlayerActionHud({ kind: "volume", muted, percent }, 950);
+  };
+
+  const showSpeedActionHud = (player: PlyrPlayer) => {
+    const rate = Number(player.speed || 1);
+    if (!Number.isFinite(rate)) return;
+    showPlayerActionHud({ kind: "speed", rate }, 1000);
+  };
+
+  const clearSponsorSkipNoticeTimer = () => {
+    if (sponsorNoticeTimerRef.current) {
+      window.clearTimeout(sponsorNoticeTimerRef.current);
+      sponsorNoticeTimerRef.current = null;
+    }
+    sponsorNoticeExpiresAtRef.current = null;
+  };
+
+  const isSponsorSkipNoticeActive = (
+    current: SponsorSkipNotice | null,
+    expected: SponsorSkipNotice
+  ) => {
+    return (
+      !!current &&
+      current.uuid === expected.uuid &&
+      current.kind === expected.kind &&
+      current.start === expected.start &&
+      current.end === expected.end
+    );
+  };
+
+  const shouldHoldSponsorSkipNotice = (notice: SponsorSkipNotice) => {
+    if (notice.kind !== "unskipped") return false;
+    const player = playerRef.current;
+    if (!player) return false;
+    const time = Number(player.currentTime || 0);
+    if (!Number.isFinite(time)) return false;
+    return time >= notice.start - 0.25 && time <= notice.end + 0.5;
+  };
+
+  const showSponsorSkipNoticePopup = (
+    notice: SponsorSkipNotice,
+    durationMs: number
+  ) => {
+    clearSponsorSkipNoticeTimer();
+    sponsorNoticeExpiresAtRef.current = Date.now() + durationMs;
+    setSponsorSkipNoticeNowMs(Date.now());
+    setSponsorSkipNotice(notice);
+    const scheduleHide = (delayMs: number) => {
+      sponsorNoticeExpiresAtRef.current = Date.now() + delayMs;
+      sponsorNoticeTimerRef.current = window.setTimeout(() => {
+        sponsorNoticeTimerRef.current = null;
+
+        const currentNotice = sponsorSkipNoticeRef.current;
+        if (!isSponsorSkipNoticeActive(currentNotice, notice)) {
+          sponsorNoticeExpiresAtRef.current = null;
+          return;
+        }
+
+        if (shouldHoldSponsorSkipNotice(notice)) {
+          scheduleHide(SPONSOR_SKIP_NOTICE_HOLD_POLL_MS);
+          return;
+        }
+
+        setSponsorSkipNotice((current) =>
+          isSponsorSkipNoticeActive(current, notice) ? null : current
+        );
+        sponsorNoticeExpiresAtRef.current = null;
+      }, delayMs);
+    };
+
+    scheduleHide(durationMs);
+  };
+
+  const undoLastSponsorSkip = () => {
+    if (!sponsorBlockEnabledRef.current) return false;
+    const player = playerRef.current;
+    const lastSkip = lastSponsorSkipRef.current;
+    const activeNotice = sponsorSkipNoticeRef.current;
+    if (!player || !lastSkip) return false;
+    if (!activeNotice || activeNotice.kind !== "skipped") return false;
+    if (activeNotice.uuid !== lastSkip.uuid) return false;
+
+    const targetTime = Math.max(0, lastSkip.start + 0.01);
+    suppressSponsorSegment(
+      {
+        UUID: lastSkip.uuid,
+        category: lastSkip.category,
+        segment: [lastSkip.start, lastSkip.end],
+      },
+      { seenInside: false, durationMs: SPONSOR_SKIP_UNDO_SUPPRESSION_MS }
+    );
+
+    try {
+      markSponsorProgrammaticSeek(targetTime);
+      player.currentTime = targetTime;
+      setCurrentTime(Math.floor(targetTime));
+      syncSponsorSeekThumbColor(targetTime);
+      showSponsorSkipNoticePopup(
+        {
+          kind: "unskipped",
+          uuid: lastSkip.uuid,
+          category: lastSkip.category,
+          start: lastSkip.start,
+          end: lastSkip.end,
+          skippedTo: lastSkip.skippedTo,
+        },
+        SPONSOR_SKIP_INFO_MS
+      );
+      containerRef.current?.focus();
+      return true;
+    } catch (err) {
+      console.error("SponsorBlock unskip error:", err);
+      return false;
+    }
+  };
+
+  const reskipLastSponsorSegment = () => {
+    if (!sponsorBlockEnabledRef.current) return false;
+    const player = playerRef.current;
+    const lastSkip = lastSponsorSkipRef.current;
+    const activeNotice = sponsorSkipNoticeRef.current;
+    if (!player || !lastSkip) return false;
+    if (!activeNotice || activeNotice.kind !== "unskipped") return false;
+    if (activeNotice.uuid !== lastSkip.uuid) return false;
+
+    const targetTime = Number.isFinite(lastSkip.skippedTo)
+      ? Math.max(0, lastSkip.skippedTo)
+      : Math.max(0, lastSkip.end + 0.05);
+
+    sponsorSkipSuppressionRef.current = null;
+
+    try {
+      markSponsorProgrammaticSeek(targetTime);
+      player.currentTime = targetTime;
+      setCurrentTime(Math.floor(targetTime));
+      syncSponsorSeekThumbColor(targetTime);
+      lastSponsorSkipRef.current = {
+        ...lastSkip,
+        skippedTo: targetTime,
+        atMs: Date.now(),
+      };
+      showSponsorSkipNoticePopup(
+        {
+          kind: "skipped",
+          uuid: lastSkip.uuid,
+          category: lastSkip.category,
+          start: lastSkip.start,
+          end: lastSkip.end,
+          skippedTo: targetTime,
+        },
+        SPONSOR_SKIP_NOTICE_MS
+      );
+      containerRef.current?.focus();
+      return true;
+    } catch (err) {
+      console.error("SponsorBlock reskip error:", err);
+      return false;
+    }
+  };
+
+  const triggerSponsorSkipNoticePrimaryAction = () => {
+    if (!sponsorBlockEnabledRef.current) return false;
+    const notice = sponsorSkipNoticeRef.current;
+    if (!notice) return false;
+    if (notice.kind === "skipped") {
+      return undoLastSponsorSkip();
+    }
+    if (notice.kind === "unskipped") {
+      return reskipLastSponsorSegment();
+    }
+    return false;
+  };
+
+  const reportSponsorSegmentViewed = async (uuid: string) => {
+    if (!sponsorBlockEnabledRef.current) return;
+    if (!uuid || sponsorViewedRef.current.has(uuid)) return;
+    sponsorViewedRef.current.add(uuid);
+    try {
+      await fetch(
+        `${SPONSORBLOCK_API_BASE}/api/viewedVideoSponsorTime?UUID=${encodeURIComponent(
+          uuid
+        )}`,
+        {
+          method: "POST",
+          mode: "cors",
+          keepalive: true,
+        }
+      );
+    } catch {
+      // Non-critical telemetry ping for SponsorBlock statistics.
+    }
+  };
+
+  const maybeAutoSkipSponsorSegment = (
+    player: PlyrPlayer,
+    currentTimeOverride?: number
+  ) => {
+    if (!sponsorBlockEnabledRef.current) return;
+    const segments = sponsorSegmentsRef.current;
+    if (!segments.length) return;
+
+    const currentTime =
+      typeof currentTimeOverride === "number" && Number.isFinite(currentTimeOverride)
+        ? currentTimeOverride
+        : Number(player.currentTime || 0);
+    if (!Number.isFinite(currentTime)) return;
+
+    const suppressed = sponsorSkipSuppressionRef.current;
+    if (suppressed) {
+      if (Date.now() >= suppressed.expiresAtMs) {
+        sponsorSkipSuppressionRef.current = null;
+      } else {
+        const inSuppressedWindow =
+          currentTime >= suppressed.start - 0.5 &&
+          currentTime <= suppressed.end + 0.5;
+
+        if (inSuppressedWindow) {
+          if (!suppressed.seenInside) {
+            sponsorSkipSuppressionRef.current = {
+              ...suppressed,
+              seenInside: true,
+            };
+          }
+        } else if (suppressed.seenInside) {
+          // Clear once the user has actually moved away after entering the segment.
+          const movedPastSegment = currentTime > suppressed.end + 0.5;
+          const movedBeforeSegment = currentTime < suppressed.start - 2;
+          if (movedPastSegment || movedBeforeSegment) {
+            sponsorSkipSuppressionRef.current = null;
+          }
+        }
+      }
+    }
+
+    const activeSegment = segments.find((segment) => {
+      const [start, end] = segment.segment;
+      return (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        end > start &&
+        currentTime >= start - 0.15 &&
+        currentTime < end - 0.1
+      );
+    });
+
+    if (!activeSegment) return;
+
+    const activeSuppression = sponsorSkipSuppressionRef.current;
+    if (
+      activeSuppression &&
+      activeSuppression.uuid === activeSegment.UUID &&
+      Date.now() < activeSuppression.expiresAtMs
+    ) {
+      return;
+    }
+
+    const [start, end] = activeSegment.segment;
+    const targetTime = Math.min(
+      Number.isFinite(player.duration) && player.duration > 0
+        ? player.duration
+        : end + 0.05,
+      end + 0.05
+    );
+
+    if (!Number.isFinite(targetTime) || targetTime <= currentTime + 0.05) {
+      return;
+    }
+
+    const lastSkip = lastSponsorSkipRef.current;
+    if (
+      lastSkip &&
+      lastSkip.uuid === activeSegment.UUID &&
+      Math.abs(lastSkip.skippedTo - targetTime) < 0.2 &&
+      Date.now() - lastSkip.atMs < 2000
+    ) {
+      return;
+    }
+
+    try {
+      markSponsorProgrammaticSeek(targetTime);
+      player.currentTime = targetTime;
+      setCurrentTime(Math.floor(targetTime));
+      syncSponsorSeekThumbColor(targetTime);
+      lastSponsorSkipRef.current = {
+        uuid: activeSegment.UUID,
+        category: activeSegment.category,
+        start,
+        end,
+        skippedTo: targetTime,
+        atMs: Date.now(),
+      };
+      sponsorSkipSuppressionRef.current = null;
+      showSponsorSkipNoticePopup(
+        {
+          kind: "skipped",
+          uuid: activeSegment.UUID,
+          category: activeSegment.category,
+          start,
+          end,
+          skippedTo: targetTime,
+        },
+        SPONSOR_SKIP_NOTICE_MS
+      );
+      void reportSponsorSegmentViewed(activeSegment.UUID);
+    } catch (err) {
+      console.error("SponsorBlock skip error:", err);
+    }
+  };
 
   useEffect(() => {
     // Reset comments state when switching videos.
@@ -362,32 +1432,6 @@ const VideoPlayerComponent = ({
     }
   };
 
-  // Load YouTube IFrame API
-  useEffect(() => {
-    // Check if API is already loaded
-    if (window.YT && window.YT.Player) {
-      initializePlayer();
-      return;
-    }
-
-    // Load the API
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-    // API calls this when ready
-    window.onYouTubeIframeAPIReady = () => {
-      initializePlayer();
-    };
-
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
-    };
-  }, []);
-
   // Prevent background page scrolling while player modal is open.
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -401,38 +1445,364 @@ const VideoPlayerComponent = ({
     };
   }, []);
 
-  const initializePlayer = () => {
-    if (!playerContainerRef.current) return;
+  useEffect(() => {
+    let disposed = false;
+    let localPlayer: PlyrPlayer | null = null;
 
-    const startSeconds = initialProgress > 0 ? Math.floor(initialProgress) : 0;
+    const mountPlyr = async () => {
+      if (!playerContainerRef.current) return;
 
-    playerRef.current = new window.YT.Player(playerContainerRef.current, {
-      videoId: ytVideoId,
-      playerVars: {
-        autoplay: 1,
-        start: startSeconds,
-        modestbranding: 1,
-        rel: 0, // Only show related videos from same channel
-        fs: 1,
-        iv_load_policy: 3, // Hide video annotations
-        disablekb: 0, // Enable keyboard controls (we handle them ourselves)
-        playsinline: 1, // Play inline on mobile
-      },
-      events: {
-        onReady: () => {
-          setPlayerReady(true);
-          onMarkWatched?.();
+      setPlayerReady(false);
+      setCurrentTime(0);
+
+      const startSeconds = initialProgress > 0 ? Math.floor(initialProgress) : 0;
+      const origin = encodeURIComponent(window.location.origin);
+      playerContainerRef.current.innerHTML = `
+        <div class="plyr__video-embed w-full h-full">
+          <iframe
+            src="https://www.youtube.com/embed/${ytVideoId}?origin=${origin}&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&enablejsapi=1&start=${startSeconds}"
+            allowfullscreen
+            allow="autoplay; fullscreen; picture-in-picture"
+            referrerpolicy="strict-origin-when-cross-origin"
+            title="YouTube video player"
+          ></iframe>
+        </div>
+      `;
+
+      const target = playerContainerRef.current.querySelector(
+        ".plyr__video-embed"
+      ) as HTMLElement | null;
+      if (!target) return;
+
+      const plyrModule = (await import("plyr")) as unknown as
+        | PlyrConstructor
+        | { default?: PlyrConstructor };
+      if (disposed) return;
+      const PlyrLib =
+        (typeof plyrModule === "function"
+          ? plyrModule
+          : plyrModule.default) ?? null;
+      if (!PlyrLib) {
+        throw new Error("Plyr constructor not found");
+      }
+
+      localPlayer = new PlyrLib(target, {
+        autoplay: true,
+        clickToPlay: true,
+        keyboard: { focused: false, global: false },
+        seekTime: 10,
+        tooltips: { controls: true, seek: true },
+        fullscreen: { enabled: true, fallback: true, iosNative: true },
+        youtube: {
+          rel: 0,
+          iv_load_policy: 3,
+          modestbranding: 1,
         },
-      },
+      });
+
+      localPlayer.on("ready", () => {
+        if (disposed) return;
+        playerRef.current = localPlayer;
+        setPlayerReady(true);
+        if (
+          localPlayer &&
+          Number.isFinite(localPlayer.duration) &&
+          localPlayer.duration > 0
+        ) {
+          setPlayerDuration(Math.floor(localPlayer.duration));
+        }
+        if (startSeconds > 0) {
+          try {
+            localPlayer!.currentTime = startSeconds;
+          } catch {
+            // Ignore seek failures during early provider init.
+          }
+        }
+        onMarkWatchedRef.current?.();
+        containerRef.current?.focus();
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+
+      localPlayer.on("timeupdate", () => {
+        if (disposed) return;
+        const time = Number(localPlayer?.currentTime || 0);
+        const duration = Number(localPlayer?.duration || 0);
+        if (Number.isFinite(time)) {
+          setCurrentTime(Math.floor(time));
+          syncSponsorSeekThumbColor(time);
+          const manualGuardActive = hasActiveManualSponsorSeekGuard();
+          const manuallyEnteredSegment = manualGuardActive
+            ? findSponsorSegmentAtTime(time, 0.25)
+            : null;
+          if (manuallyEnteredSegment) {
+            suppressSponsorSegment(manuallyEnteredSegment, {
+              seenInside: true,
+              durationMs: Math.max(
+                SPONSOR_SKIP_UNDO_SUPPRESSION_MS,
+                (manuallyEnteredSegment.segment[1] - time + 6) * 1000
+              ),
+            });
+          } else if (localPlayer) {
+            maybeAutoSkipSponsorSegment(localPlayer, time);
+          }
+        }
+        if (Number.isFinite(duration) && duration > 0) {
+          setPlayerDuration(Math.floor(duration));
+        }
+        updatePlayerDebugSnapshot(localPlayer, { currentTime: time, duration });
+      });
+
+      localPlayer.on("seeking", () => {
+        if (disposed || !localPlayer) return;
+        const time = Number(localPlayer.currentTime || 0);
+        if (!isSponsorProgrammaticSeek(time)) {
+          armManualSponsorSeekGuard();
+        }
+      });
+
+      localPlayer.on("seeked", () => {
+        if (disposed || !localPlayer) return;
+        const time = Number(localPlayer.currentTime || 0);
+        const duration = Number(localPlayer.duration || 0);
+        if (Number.isFinite(time)) {
+          syncSponsorSeekThumbColor(time);
+        }
+
+        const sponsorProgrammatic = isSponsorProgrammaticSeek(time);
+        if (sponsorProgrammatic) {
+          sponsorProgrammaticSeekRef.current = null;
+          sponsorManualSeekGuardRef.current = null;
+          maybeAutoSkipSponsorSegment(localPlayer, time);
+        } else {
+          sponsorProgrammaticSeekRef.current = null;
+          const manuallyEnteredSegment =
+            Number.isFinite(time) ? findSponsorSegmentAtTime(time, 0.25) : null;
+          if (manuallyEnteredSegment) {
+            suppressSponsorSegment(manuallyEnteredSegment, {
+              seenInside: true,
+              durationMs: Math.max(
+                SPONSOR_SKIP_UNDO_SUPPRESSION_MS,
+                (manuallyEnteredSegment.segment[1] - time + 6) * 1000
+              ),
+            });
+          } else {
+            maybeAutoSkipSponsorSegment(localPlayer, time);
+          }
+          sponsorManualSeekGuardRef.current = null;
+        }
+        updatePlayerDebugSnapshot(localPlayer, { currentTime: time, duration });
+      });
+
+      localPlayer.on("qualitychange", () => {
+        if (!localPlayer) return;
+        const q = localPlayer.quality;
+        if (
+          onQualityChangeRef.current &&
+          typeof q === "number" &&
+          Number.isFinite(q) &&
+          q > 0
+        ) {
+          onQualityChangeRef.current(`${q}p`);
+        }
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+
+      localPlayer.on("ratechange", () => {
+        if (!localPlayer) return;
+        showSpeedActionHud(localPlayer);
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+
+      localPlayer.on("volumechange", () => {
+        if (!localPlayer) return;
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+
+      localPlayer.on("enterfullscreen", () => {
+        setIsFullscreen(true);
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+      localPlayer.on("exitfullscreen", () => {
+        setIsFullscreen(false);
+        updatePlayerDebugSnapshot(localPlayer);
+      });
+    };
+
+    mountPlyr().catch((err) => {
+      if (!disposed) {
+        console.error("Failed to initialize Plyr:", err);
+      }
     });
-  };
+
+    return () => {
+      disposed = true;
+      setPlayerReady(false);
+      setPlayerDuration(0);
+      const player = localPlayer || playerRef.current;
+      if (player) {
+        try {
+          player.destroy();
+        } catch (err) {
+          console.warn("Failed to destroy Plyr instance:", err);
+        }
+      }
+      playerRef.current = null;
+      if (playerContainerRef.current) {
+        playerContainerRef.current.innerHTML = "";
+      }
+    };
+  }, [ytVideoId, initialProgress]);
 
   useEffect(() => {
-    // Convert progress percentage to seconds if initialProgress is provided
-    if (initialProgress > 0) {
-      setStartTime(Math.floor(initialProgress));
-    }
-  }, [initialProgress]);
+    if (!playerReady || !playerRef.current) return;
+    const player = playerRef.current;
+    applyPreferredQuality(player);
+    const retryDelays = [250, 1000, 2500];
+    const timers = retryDelays.map((delay) =>
+      window.setTimeout(() => {
+        applyPreferredQuality(player);
+        updatePlayerDebugSnapshot(player);
+      }, delay)
+    );
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [playerReady, quality, ytVideoId]);
+
+  useEffect(() => {
+    if (!playerReady || !playerRef.current) return;
+    const timer = window.setTimeout(() => {
+      applyPreferredQuality(playerRef.current);
+      updatePlayerDebugSnapshot(playerRef.current);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [isFullscreen, playerReady, quality]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    const syncMarkers = () => {
+      const progress = root.querySelector(".plyr__progress") as HTMLElement | null;
+      if (!progress) return;
+      const rangeInput = progress.querySelector(
+        'input[type="range"]'
+      ) as HTMLElement | null;
+      const progressRect = progress.getBoundingClientRect();
+      const rangeRect = rangeInput?.getBoundingClientRect();
+      const trackHeightPx = Math.max(
+        2,
+        Number.parseFloat(
+          getComputedStyle(progress).getPropertyValue("--plyr-range-track-height")
+        ) || 5
+      );
+
+      let layer = progress.querySelector(
+        ".tubeshelf-sponsorblock-markers"
+      ) as HTMLDivElement | null;
+
+      if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "tubeshelf-sponsorblock-markers";
+        layer.setAttribute("aria-hidden", "true");
+        Object.assign(layer.style, {
+          position: "absolute",
+          left: "0",
+          width: "100%",
+          top: "50%",
+          bottom: "auto",
+          height: "var(--plyr-range-track-height, 6px)",
+          transform: "translateY(-50%)",
+          pointerEvents: "none",
+          zIndex: "3",
+          borderRadius: "2px",
+          overflow: "hidden",
+        } as CSSStyleDeclaration);
+
+        if (getComputedStyle(progress).position === "static") {
+          progress.style.position = "relative";
+        }
+        progress.appendChild(layer);
+      }
+
+      if (rangeRect && progressRect.width > 0) {
+        const leftPx = Math.max(0, rangeRect.left - progressRect.left);
+        const topPx =
+          rangeRect.top -
+          progressRect.top +
+          rangeRect.height / 2 -
+          trackHeightPx / 2;
+        layer.style.left = `${leftPx}px`;
+        layer.style.width = `${Math.max(0, rangeRect.width)}px`;
+        layer.style.top = `${Math.max(0, topPx)}px`;
+        layer.style.height = `${trackHeightPx}px`;
+        layer.style.transform = "none";
+      } else {
+        layer.style.left = "0";
+        layer.style.width = "100%";
+        layer.style.top = "50%";
+        layer.style.height = "var(--plyr-range-track-height, 6px)";
+        layer.style.transform = "translateY(-50%)";
+      }
+
+      layer.replaceChildren();
+
+      if (
+        !sponsorBlockEnabled ||
+        !playerReady ||
+        playerDuration <= 0 ||
+        sponsorSegments.length === 0
+      ) {
+        layer.style.display = "none";
+        return;
+      }
+
+      layer.style.display = "block";
+
+      const mergedSegments = sponsorSegments
+        .filter((segment) => {
+          const [start, end] = segment.segment;
+          return start < playerDuration && end > 0 && end > start;
+        })
+        .map((segment) => ({
+          ...segment,
+          segment: [
+            Math.max(0, segment.segment[0]),
+            Math.min(playerDuration, segment.segment[1]),
+          ] as [number, number],
+        }))
+        .sort((a, b) => {
+          const startDiff = a.segment[0] - b.segment[0];
+          if (startDiff !== 0) return startDiff;
+          return a.segment[1] - b.segment[1];
+        });
+
+      for (const segment of mergedSegments) {
+        const [start, end] = segment.segment;
+        const leftPct = (start / playerDuration) * 100;
+        const widthPct = Math.max(((end - start) / playerDuration) * 100, 0.2);
+        const marker = document.createElement("span");
+        marker.className = "tubeshelf-sponsorblock-marker";
+        marker.title = `${SPONSORBLOCK_CATEGORY_LABELS[segment.category] || segment.category} (${start.toFixed(0)}s-${end.toFixed(0)}s)`;
+        Object.assign(marker.style, {
+          position: "absolute",
+          left: `${leftPct}%`,
+          width: `${widthPct}%`,
+          top: "0",
+          bottom: "0",
+          background:
+            SPONSORBLOCK_CATEGORY_COLORS[segment.category] ||
+            "#ffffff",
+          opacity: "0.9",
+          borderRadius: "0",
+        } as CSSStyleDeclaration);
+        layer.appendChild(marker);
+      }
+    };
+
+    const raf = window.requestAnimationFrame(syncMarkers);
+    return () => window.cancelAnimationFrame(raf);
+  }, [playerReady, playerDuration, sponsorSegments, sponsorBlockEnabled, ytVideoId]);
 
   // Track playback progress and report to parent
   useEffect(() => {
@@ -441,12 +1811,9 @@ const VideoPlayerComponent = ({
     const interval = setInterval(() => {
       try {
         const player = playerRef.current;
-        if (player && player.getCurrentTime && player.getDuration) {
-          const time = player.getCurrentTime();
-          const duration = player.getDuration();
-          if (Number.isFinite(time)) {
-            setCurrentTime(Math.floor(time));
-          }
+        if (player) {
+          const time = player.currentTime;
+          const duration = player.duration;
           if (duration > 0) {
             onProgress?.(time, duration);
           }
@@ -473,23 +1840,64 @@ const VideoPlayerComponent = ({
     }
   })();
 
-  // YouTube keyboard shortcuts - works even when iframe isn't focused
+  const sponsorNoticeRemainingMs =
+    sponsorSkipNotice && sponsorNoticeExpiresAtRef.current
+      ? Math.max(0, sponsorNoticeExpiresAtRef.current - sponsorSkipNoticeNowMs)
+      : 0;
+  const sponsorNoticeHeldByUnskippedSegment =
+    !!sponsorSkipNotice &&
+    sponsorSkipNotice.kind === "unskipped" &&
+    Number.isFinite(currentTime) &&
+    currentTime >= sponsorSkipNotice.start - 1 &&
+    currentTime <= sponsorSkipNotice.end + 1;
+  const sponsorNoticeHideCountdown = sponsorNoticeHeldByUnskippedSegment;
+  const sponsorNoticeCountdownSeconds =
+    sponsorSkipNotice && sponsorNoticeRemainingMs > 0 && !sponsorNoticeHideCountdown
+      ? Math.max(1, Math.ceil(sponsorNoticeRemainingMs / 1000))
+      : null;
+  const sponsorNoticeActionLabel =
+    sponsorSkipNotice?.kind === "skipped"
+      ? "Unskip (Enter)"
+      : sponsorSkipNotice?.kind === "unskipped"
+        ? "Reskip (Enter)"
+        : null;
+
+  // Playback shortcuts - handled at the app level so they still work outside iframe focus.
   useEffect(() => {
     if (!playerReady || !playerRef.current) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't interfere if user is typing in an input
+      // Don't interfere with text entry fields, but allow shortcuts from range sliders.
+      if (e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.target instanceof HTMLSelectElement) {
+        return;
+      }
+      if (e.target instanceof HTMLInputElement) {
+        const inputType = (e.target.type || "").toLowerCase();
+        if (inputType !== "range") {
+          return;
+        }
+      }
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        e.target instanceof HTMLElement &&
+        e.target.isContentEditable
       ) {
         return;
       }
 
       const player = playerRef.current;
+      if (!player) return;
 
       try {
         switch (e.key.toLowerCase()) {
+          case "enter":
+            if (triggerSponsorSkipNoticePrimaryAction()) {
+              e.preventDefault();
+            }
+            break;
+
           case "escape":
             e.preventDefault();
             onClose();
@@ -499,91 +1907,79 @@ const VideoPlayerComponent = ({
           case "k":
             // Play/Pause
             e.preventDefault();
-            if (player.getPlayerState() === 1) {
-              player.pauseVideo();
-            } else {
-              player.playVideo();
-            }
+            player.togglePlay();
             break;
 
           case "arrowleft":
             // Seek backward 5s
             e.preventDefault();
-            player.seekTo(Math.max(0, player.getCurrentTime() - 5), true);
+            seekBy(-5);
+            showSeekActionHud(-5);
             break;
 
           case "arrowright":
             // Seek forward 5s
             e.preventDefault();
-            player.seekTo(
-              Math.min(player.getDuration(), player.getCurrentTime() + 5),
-              true
-            );
+            seekBy(5);
+            showSeekActionHud(5);
             break;
 
           case "j":
             // Seek backward 10s
             e.preventDefault();
-            player.seekTo(Math.max(0, player.getCurrentTime() - 10), true);
+            seekBy(-10);
+            showSeekActionHud(-10);
             break;
 
           case "l":
             // Seek forward 10s
             e.preventDefault();
-            player.seekTo(
-              Math.min(player.getDuration(), player.getCurrentTime() + 10),
-              true
-            );
+            seekBy(10);
+            showSeekActionHud(10);
             break;
 
           case "arrowup":
             // Volume up 5%
             e.preventDefault();
-            player.setVolume(Math.min(100, player.getVolume() + 5));
+            const currentVolume = player.muted ? 0 : player.volume;
+            player.muted = false;
+            player.volume = Math.min(1, currentVolume + 0.05);
+            showVolumeActionHud(player);
             break;
 
           case "arrowdown":
             // Volume down 5%
             e.preventDefault();
-            player.setVolume(Math.max(0, player.getVolume() - 5));
+            player.volume = Math.max(0, player.volume - 0.05);
+            if (player.volume === 0) {
+              player.muted = true;
+            }
+            showVolumeActionHud(player);
             break;
 
           case "m":
             // Mute/Unmute
             e.preventDefault();
-            if (player.isMuted()) {
-              player.unMute();
-            } else {
-              player.mute();
-            }
+            player.muted = !player.muted;
+            showVolumeActionHud(player);
             break;
 
           case "f":
             // Fullscreen
             e.preventDefault();
-            try {
-              const iframe = player.getIframe();
-              if (iframe && iframe.requestFullscreen) {
-                iframe.requestFullscreen();
-              } else if (containerRef.current?.requestFullscreen) {
-                // Fallback to container fullscreen
-                containerRef.current.requestFullscreen();
-              }
-            } catch (err) {
-              console.error("Fullscreen error:", err);
-            }
+            void toggleFullscreen();
             break;
 
           case "home":
             // Jump to beginning
             e.preventDefault();
-            player.seekTo(0, true);
+            player.currentTime = 0;
             break;
 
           case "end":
             // Jump to end
             e.preventDefault();
-            player.seekTo(player.getDuration(), true);
+            player.currentTime = player.duration;
             break;
 
           case "0":
@@ -599,7 +1995,7 @@ const VideoPlayerComponent = ({
             // Jump to 0-90% of video
             e.preventDefault();
             const percent = parseInt(e.key) / 10;
-            player.seekTo(player.getDuration() * percent, true);
+            player.currentTime = player.duration * percent;
             break;
 
           case ",":
@@ -609,13 +2005,13 @@ const VideoPlayerComponent = ({
             e.preventDefault();
             try {
               const rates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-              const currentRate = player.getPlaybackRate();
+              const currentRate = player.speed;
               let currentIndex = rates.findIndex(
                 (r) => Math.abs(r - currentRate) < 0.01
               );
               if (currentIndex === -1) currentIndex = rates.indexOf(1);
               if (currentIndex > 0) {
-                player.setPlaybackRate(rates[currentIndex - 1]);
+                player.speed = rates[currentIndex - 1];
               }
             } catch (err) {
               console.error("Error changing playback speed:", err);
@@ -629,13 +2025,13 @@ const VideoPlayerComponent = ({
             e.preventDefault();
             try {
               const rates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-              const currentRate = player.getPlaybackRate();
+              const currentRate = player.speed;
               let currentIndex = rates.findIndex(
                 (r) => Math.abs(r - currentRate) < 0.01
               );
               if (currentIndex === -1) currentIndex = rates.indexOf(1);
               if (currentIndex < rates.length - 1) {
-                player.setPlaybackRate(rates[currentIndex + 1]);
+                player.speed = rates[currentIndex + 1];
               }
             } catch (err) {
               console.error("Error changing playback speed:", err);
@@ -645,15 +2041,7 @@ const VideoPlayerComponent = ({
           case "c":
             // Toggle captions
             e.preventDefault();
-            const options = player.getOptions();
-            if (options && options.includes("cc")) {
-              const currentModule = player.getOption("cc", "track");
-              if (currentModule && currentModule.displayName) {
-                player.unloadModule("cc");
-              } else {
-                player.loadModule("cc");
-              }
-            }
+            player.toggleCaptions();
             break;
         }
       } catch (err) {
@@ -665,7 +2053,7 @@ const VideoPlayerComponent = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, playerReady]);
 
-  // Close shortcuts dropdown when clicking outside
+  // Close header dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -675,49 +2063,25 @@ const VideoPlayerComponent = ({
       ) {
         setShowShortcuts(false);
       }
+      if (
+        showPlayerSettingsMenu &&
+        playerSettingsMenuRef.current &&
+        !playerSettingsMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowPlayerSettingsMenu(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showShortcuts]);
+  }, [showShortcuts, showPlayerSettingsMenu]);
 
-  // Track fullscreen state and auto-hide cursor on macOS
+  // Track fullscreen state
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFS = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
-      );
+      const isFS = getPlayerFullscreenState();
       setIsFullscreen(isFS);
-
-      // Add/remove global style to hide cursor in fullscreen
-      if (isFS) {
-        // Add style to body and fullscreen element
-        document.body.style.cursor = "none";
-        const styleId = "fullscreen-cursor-hide";
-        if (!document.getElementById(styleId)) {
-          const style = document.createElement("style");
-          style.id = styleId;
-          style.textContent = `
-            :fullscreen, :-webkit-full-screen, :-moz-full-screen, :-ms-fullscreen {
-              cursor: none !important;
-            }
-            :fullscreen *, :-webkit-full-screen *, :-moz-full-screen *, :-ms-fullscreen * {
-              cursor: none !important;
-            }
-          `;
-          document.head.appendChild(style);
-        }
-      } else {
-        // Remove cursor hiding
-        document.body.style.cursor = "";
-        const styleElement = document.getElementById("fullscreen-cursor-hide");
-        if (styleElement) {
-          styleElement.remove();
-        }
-      }
+      updatePlayerDebugSnapshot(playerRef.current);
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -739,21 +2103,92 @@ const VideoPlayerComponent = ({
         "MSFullscreenChange",
         handleFullscreenChange
       );
-
-      // Cleanup
-      document.body.style.cursor = "";
-      const styleElement = document.getElementById("fullscreen-cursor-hide");
-      if (styleElement) {
-        styleElement.remove();
-      }
     };
   }, []);
+
+  // Keep Plyr fullscreen button state in sync with our native fullscreen target.
+  useEffect(() => {
+    if (!playerReady) return;
+    const root = containerRef.current;
+    if (!root) return;
+
+    const syncPlyrFullscreenButtons = () => {
+      const fullscreenNow = getPlayerFullscreenState();
+      const buttons = root.querySelectorAll(
+        '.plyr__control[data-plyr="fullscreen"]'
+      );
+      buttons.forEach((buttonNode) => {
+        const button = buttonNode as HTMLButtonElement;
+        button.classList.toggle("plyr__control--pressed", fullscreenNow);
+        button.setAttribute("aria-pressed", String(fullscreenNow));
+        const label = fullscreenNow ? "Exit fullscreen" : "Enter fullscreen";
+        button.setAttribute("aria-label", label);
+        button.title = label;
+      });
+    };
+
+    syncPlyrFullscreenButtons();
+
+    const handleFullscreenButtonClickCapture = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      const button = target?.closest?.(
+        '.plyr__control[data-plyr="fullscreen"]'
+      ) as HTMLButtonElement | null;
+      if (!button) return;
+
+      // Bypass Plyr's internal fullscreen state machine so GUI and keyboard use
+      // the same fullscreen target (our native video frame fullscreen).
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      void toggleFullscreen();
+    };
+
+    const handleFullscreenButtonHoverOrFocus = (event: Event) => {
+      const target = event.target as Element | null;
+      const button = target?.closest?.(
+        '.plyr__control[data-plyr="fullscreen"]'
+      ) as HTMLButtonElement | null;
+      if (!button) return;
+      syncPlyrFullscreenButtons();
+    };
+
+    const handleNativeFullscreenChange = () => {
+      syncPlyrFullscreenButtons();
+    };
+
+    root.addEventListener("click", handleFullscreenButtonClickCapture, true);
+    root.addEventListener("mouseover", handleFullscreenButtonHoverOrFocus, true);
+    root.addEventListener("focusin", handleFullscreenButtonHoverOrFocus, true);
+    document.addEventListener("fullscreenchange", handleNativeFullscreenChange);
+    document.addEventListener(
+      "webkitfullscreenchange",
+      handleNativeFullscreenChange as EventListener
+    );
+    return () => {
+      root.removeEventListener("click", handleFullscreenButtonClickCapture, true);
+      root.removeEventListener(
+        "mouseover",
+        handleFullscreenButtonHoverOrFocus,
+        true
+      );
+      root.removeEventListener("focusin", handleFullscreenButtonHoverOrFocus, true);
+      document.removeEventListener(
+        "fullscreenchange",
+        handleNativeFullscreenChange
+      );
+      document.removeEventListener(
+        "webkitfullscreenchange",
+        handleNativeFullscreenChange as EventListener
+      );
+    };
+  }, [isFullscreen, playerReady, ytVideoId]);
 
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
       className="fixed inset-0 z-50 bg-black/95 flex flex-col overflow-hidden"
-      style={isFullscreen ? { cursor: "none" } : undefined}
     >
       {/* Header */}
       <div className="border-b border-white/10 bg-black/95">
@@ -767,10 +2202,133 @@ const VideoPlayerComponent = ({
 
             {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Player Settings */}
+              <div className="relative" ref={playerSettingsMenuRef}>
+                <button
+                  onClick={() => {
+                    setShowPlayerSettingsMenu((prev) => !prev);
+                    setShowShortcuts(false);
+                  }}
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  title="Player settings"
+                  aria-label="Player settings"
+                  aria-expanded={showPlayerSettingsMenu}
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+
+                {showPlayerSettingsMenu && (
+                  <div className="absolute right-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-gray-900/95 shadow-2xl z-50 overflow-hidden backdrop-blur-md">
+                    <div className="px-4 py-3 border-b border-white/10">
+                      <h3 className="text-sm font-semibold text-white">
+                        Player Settings
+                      </h3>
+                      <p className="mt-1 text-xs text-gray-400">
+                        Saved for the built-in player
+                      </p>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                          Default Resolution
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["720p", "1080p"] as const).map((res) => (
+                            <button
+                              key={res}
+                              type="button"
+                              onClick={() => {
+                                void onDefaultResolutionChange?.(res);
+                              }}
+                              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                                defaultResolution === res
+                                  ? "bg-red-600 text-white"
+                                  : "bg-white/5 text-gray-200 hover:bg-white/10"
+                              }`}
+                            >
+                              {res}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-gray-500">
+                          YouTube may override this based on bandwidth/device.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm text-white">SponsorBlock</div>
+                            <div className="text-[11px] text-gray-400">
+                              Auto-skip community segments
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 rounded-md bg-white/5 p-1">
+                            {([
+                              { label: "On", value: true },
+                              { label: "Off", value: false },
+                            ] as const).map((option) => (
+                              <button
+                                key={option.label}
+                                type="button"
+                                onClick={() => {
+                                  void onSponsorBlockEnabledChange?.(option.value);
+                                }}
+                                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                                  sponsorBlockEnabled === option.value
+                                    ? "bg-white text-black"
+                                    : "text-gray-300 hover:bg-white/10"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm text-white">Debug Overlay</div>
+                            <div className="text-[11px] text-gray-400">
+                              Show quality/speed/volume diagnostics
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 rounded-md bg-white/5 p-1">
+                            {([
+                              { label: "On", value: true },
+                              { label: "Off", value: false },
+                            ] as const).map((option) => (
+                              <button
+                                key={option.label}
+                                type="button"
+                                onClick={() => {
+                                  void onDebugOverlayEnabledChange?.(option.value);
+                                }}
+                                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                                  debugOverlayEnabled === option.value
+                                    ? "bg-white text-black"
+                                    : "text-gray-300 hover:bg-white/10"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Keyboard Shortcuts */}
               <div className="relative" ref={shortcutsRef}>
                 <button
-                  onClick={() => setShowShortcuts(!showShortcuts)}
+                  onClick={() => {
+                    setShowShortcuts(!showShortcuts);
+                    setShowPlayerSettingsMenu(false);
+                  }}
                   className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                   title="Keyboard shortcuts"
                 >
@@ -937,6 +2495,14 @@ const VideoPlayerComponent = ({
                             </div>
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-gray-300">
+                                SponsorBlock popup action
+                              </span>
+                              <kbd className="px-2 py-1 bg-white/10 rounded text-white font-mono text-xs">
+                                Enter
+                              </kbd>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-300">
                                 Close player
                               </span>
                               <kbd className="px-2 py-1 bg-white/10 rounded text-white font-mono text-xs">
@@ -976,8 +2542,235 @@ const VideoPlayerComponent = ({
         <div className="px-4 sm:px-6 lg:px-8 py-6">
           <div className="max-w-7xl mx-auto">
             {/* Video Container */}
-            <div className="w-full aspect-video relative rounded-xl overflow-hidden shadow-lg bg-black">
-              <div ref={playerContainerRef} className="w-full h-full" />
+            <div
+              ref={videoFrameRef}
+              className="w-full aspect-video relative rounded-xl overflow-hidden shadow-lg bg-black [&:fullscreen]:rounded-none [&:-webkit-full-screen]:rounded-none"
+            >
+              <div
+                ref={playerContainerRef}
+                className="w-full h-full [&_.plyr]:h-full [&_.plyr__video-wrapper]:h-full [&_.plyr__video-embed]:h-full"
+                style={
+                  {
+                    "--plyr-color-main": "#ff0000",
+                    "--plyr-range-fill-background": "#ff0000",
+                    "--plyr-range-thumb-background": sponsorSeekThumbColor,
+                    "--plyr-range-track-height": "4px",
+                    "--plyr-range-thumb-height": "12px",
+                    "--plyr-audio-range-thumb-active-shadow-color": hexToRgba(
+                      sponsorSeekThumbColor,
+                      0.35
+                    ),
+                  } as React.CSSProperties
+                }
+              />
+              {playerActionHud && (
+                <div className="pointer-events-none absolute inset-0 z-[25]">
+                  {playerActionHud.kind === "seek" ? (
+                    <div
+                      className={`absolute top-1/2 -translate-y-1/2 ${
+                        playerActionHud.direction === "forward"
+                          ? "right-[12%]"
+                          : "left-[12%]"
+                      }`}
+                    >
+                      <div className="min-w-[110px] rounded-2xl border border-white/10 bg-black/65 px-4 py-3 text-center text-white shadow-2xl backdrop-blur-sm">
+                        <div className="flex items-center justify-center gap-2">
+                          {playerActionHud.direction === "forward" ? (
+                            <FastForward className="w-5 h-5" />
+                          ) : (
+                            <Rewind className="w-5 h-5" />
+                          )}
+                          <span className="text-xl font-semibold tabular-nums">
+                            {playerActionHud.direction === "forward" ? "+" : "-"}
+                            {playerActionHud.totalSeconds}s
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] text-gray-300">
+                          {playerActionHud.direction === "forward"
+                            ? "Forward"
+                            : "Back"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="absolute left-1/2 bottom-20 -translate-x-1/2">
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-xl backdrop-blur-sm">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white/5">
+                          {playerActionHud.kind === "speed" ? (
+                            <Gauge className="w-4 h-4" />
+                          ) : playerActionHud.muted ? (
+                            <VolumeX className="w-4 h-4" />
+                          ) : (
+                            <Volume2 className="w-4 h-4" />
+                          )}
+                        </span>
+
+                        {playerActionHud.kind === "speed" ? (
+                          <div className="text-sm font-medium tabular-nums">
+                            Speed {playerActionHud.rate.toFixed(2).replace(/\.00$/, "")}x
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-sm font-medium tabular-nums min-w-[64px]">
+                              {playerActionHud.muted
+                                ? "Muted"
+                                : `Volume ${playerActionHud.percent}%`}
+                            </div>
+                            <div className="w-20 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-white/90"
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(100, playerActionHud.percent)
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {debugOverlayEnabled && playerDebugSnapshot && (
+                <div className="pointer-events-none absolute top-2 left-2 z-20">
+                  <div className="rounded-md border border-white/10 bg-black/70 px-2.5 py-2 text-[11px] leading-4 text-white/90 shadow-lg backdrop-blur-sm font-mono">
+                    <div className="mb-1 text-[10px] uppercase tracking-wide text-white/60">
+                      Player Debug
+                    </div>
+                    <div>
+                      Quality:{" "}
+                      <span className="text-white">
+                        {playerDebugSnapshot.quality || "auto/unknown"}
+                      </span>
+                      {quality ? (
+                        <span className="text-white/50"> (pref {quality})</span>
+                      ) : null}
+                    </div>
+                    <div>
+                      Speed:{" "}
+                      <span className="text-white">
+                        {playerDebugSnapshot.speed
+                          .toFixed(2)
+                          .replace(/\.00$/, "")}
+                        x
+                      </span>
+                    </div>
+                    <div>
+                      Volume:{" "}
+                      <span className="text-white">
+                        {playerDebugSnapshot.muted
+                          ? "Muted"
+                          : `${playerDebugSnapshot.volumePercent}%`}
+                      </span>
+                    </div>
+                    <div>
+                      Time:{" "}
+                      <span className="text-white">
+                        {formatDebugTime(playerDebugSnapshot.currentTime)} /{" "}
+                        {formatDebugTime(playerDebugSnapshot.duration)}
+                      </span>
+                    </div>
+                    <div>
+                      Fullscreen:{" "}
+                      <span className="text-white">
+                        {playerDebugSnapshot.fullscreen ? "on" : "off"}
+                      </span>
+                    </div>
+                    <div>
+                      Sponsor:{" "}
+                      <span className="text-white">
+                        {playerDebugSnapshot.sponsorCategory || "none"}
+                      </span>
+                      <span className="text-white/50">
+                        {" "}
+                        ({playerDebugSnapshot.sponsorSegmentsCount} seg)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {sponsorBlockEnabled && sponsorSkipNotice && (
+                <div className="absolute left-2.5 right-2.5 bottom-14 sm:left-3 sm:right-auto sm:max-w-xl z-20 pointer-events-none">
+                  <div
+                    className="pointer-events-auto inline-flex max-w-full items-center rounded-md border border-white/10 bg-black/75 shadow-xl backdrop-blur-md overflow-hidden"
+                    style={{
+                      boxShadow: `0 8px 24px ${hexToRgba(
+                        SPONSORBLOCK_CATEGORY_COLORS[sponsorSkipNotice.category] ||
+                          "#ffffff",
+                        0.14
+                      )}`,
+                    }}
+                    title="SponsorBlock"
+                  >
+                    <div className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 min-w-0">
+                      <span
+                        className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0"
+                        style={{
+                          backgroundColor: hexToRgba(
+                            SPONSORBLOCK_CATEGORY_COLORS[sponsorSkipNotice.category] ||
+                              "#ffffff",
+                            0.2
+                          ),
+                          color:
+                            SPONSORBLOCK_CATEGORY_COLORS[sponsorSkipNotice.category] ||
+                            "#ffffff",
+                        }}
+                        aria-hidden="true"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="min-w-0 truncate text-sm text-white/90 font-medium">
+                        {(SPONSORBLOCK_CATEGORY_LABELS[sponsorSkipNotice.category] ||
+                          sponsorSkipNotice.category) +
+                          (sponsorSkipNotice.kind === "skipped"
+                            ? " skipped"
+                            : " unskipped")}
+                      </span>
+                    </div>
+                    {sponsorNoticeActionLabel && (
+                      <>
+                        <div className="h-5 w-px bg-white/10 shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void triggerSponsorSkipNoticePrimaryAction();
+                          }}
+                          className="shrink-0 px-3 py-1.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 transition-colors"
+                          title={
+                            sponsorSkipNotice.kind === "skipped"
+                              ? "Undo sponsor skip"
+                              : "Skip this segment again"
+                          }
+                        >
+                          {sponsorNoticeActionLabel}
+                        </button>
+                      </>
+                    )}
+                    <div className="flex items-center gap-1 pr-1 pl-1.5 shrink-0">
+                      {sponsorNoticeCountdownSeconds ? (
+                        <span className="inline-flex items-center justify-center min-w-8 h-6 rounded-md border border-white/10 bg-black/35 px-1.5 text-xs text-gray-200">
+                          {sponsorNoticeCountdownSeconds}s
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearSponsorSkipNoticeTimer();
+                          setSponsorSkipNotice(null);
+                        }}
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                        title="Dismiss SponsorBlock popup"
+                        aria-label="Dismiss SponsorBlock popup"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Channel Row + Comments Toggle */}
@@ -1322,7 +3115,18 @@ const VideoPlayerComponent = ({
 export const VideoPlayer = memo(
   VideoPlayerComponent,
   (prevProps, nextProps) => {
-    // Only re-render if videoId changes
-    return prevProps.videoId === nextProps.videoId;
+    return (
+      prevProps.videoId === nextProps.videoId &&
+      prevProps.videoTitle === nextProps.videoTitle &&
+      prevProps.channelName === nextProps.channelName &&
+      prevProps.channelId === nextProps.channelId &&
+      prevProps.channelThumbnail === nextProps.channelThumbnail &&
+      prevProps.videoUrl === nextProps.videoUrl &&
+      prevProps.quality === nextProps.quality &&
+      prevProps.defaultResolution === nextProps.defaultResolution &&
+      prevProps.sponsorBlockEnabled === nextProps.sponsorBlockEnabled &&
+      prevProps.debugOverlayEnabled === nextProps.debugOverlayEnabled &&
+      prevProps.initialProgress === nextProps.initialProgress
+    );
   }
 );
