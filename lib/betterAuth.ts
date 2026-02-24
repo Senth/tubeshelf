@@ -10,6 +10,7 @@ import { getOIDCProvider, getOIDCProviders, type OIDCProvider } from "@/lib/oidc
 
 const BCRYPT_ROUNDS = 12;
 const LEGACY_SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;
+const INSECURE_DEFAULT_BETTER_AUTH_SECRET = "tubeshelf-default-key-change-me";
 const BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS = [
   "Field created_at in table users has a different type in the database. Expected date but got TEXT.",
   "Field updated_at in table users has a different type in the database. Expected date but got TEXT.",
@@ -21,6 +22,67 @@ type BetterAuthSession = Awaited<ReturnType<ReturnType<typeof createAuth>["api"]
 declare global {
   // eslint-disable-next-line no-var
   var __tubeshelfBetterAuthReadyPromise: Promise<void> | undefined;
+  // eslint-disable-next-line no-var
+  var __tubeshelfAuthSecretWarningLogged: boolean | undefined;
+}
+
+type AuthSecretSource = "BETTER_AUTH_SECRET" | "AUTH_SECRET" | "SECRET_KEY" | "default";
+
+type AuthSecretStatus = {
+  source: AuthSecretSource;
+  isInsecureDefault: boolean;
+  isTooShort: boolean;
+  length: number;
+};
+
+function resolveAuthSecret(): { secret: string; status: AuthSecretStatus } {
+  const envSecret =
+    process.env.BETTER_AUTH_SECRET ??
+    process.env.AUTH_SECRET ??
+    process.env.SECRET_KEY ??
+    INSECURE_DEFAULT_BETTER_AUTH_SECRET;
+
+  const source: AuthSecretSource = process.env.BETTER_AUTH_SECRET
+    ? "BETTER_AUTH_SECRET"
+    : process.env.AUTH_SECRET
+      ? "AUTH_SECRET"
+      : process.env.SECRET_KEY
+        ? "SECRET_KEY"
+        : "default";
+
+  const length = envSecret.length;
+  return {
+    secret: envSecret,
+    status: {
+      source,
+      isInsecureDefault: envSecret === INSECURE_DEFAULT_BETTER_AUTH_SECRET,
+      isTooShort: length < 32,
+      length,
+    },
+  };
+}
+
+function warnIfAuthSecretIsInsecure() {
+  const { status } = resolveAuthSecret();
+  if (!status.isInsecureDefault && !status.isTooShort) return;
+  if (globalThis.__tubeshelfAuthSecretWarningLogged) return;
+  globalThis.__tubeshelfAuthSecretWarningLogged = true;
+
+  if (status.isInsecureDefault) {
+    console.warn(
+      "[Auth] Insecure default BetterAuth secret is in use. Set BETTER_AUTH_SECRET (32+ chars) in production. Existing BetterAuth sessions will be invalidated when the secret changes."
+    );
+    return;
+  }
+
+  console.warn(
+    `[Auth] BetterAuth secret from ${status.source} is only ${status.length} chars. Use BETTER_AUTH_SECRET with at least 32 characters.`
+  );
+}
+
+export function getAuthSecretStatus() {
+  const { status } = resolveAuthSecret();
+  return status;
 }
 
 function firstHeaderValue(value: string | null): string {
@@ -289,6 +351,7 @@ export async function ensureBetterAuthReady() {
 }
 
 function createAuth(request?: Request) {
+  warnIfAuthSecretIsInsecure();
   const baseUrl = getRequestBaseUrl(request) || "http://localhost:3000";
   const oidcConfigs = getOIDCProviders().map((provider) =>
     toGenericOAuthConfig(baseUrl, provider)
@@ -298,11 +361,7 @@ function createAuth(request?: Request) {
     appName: "TubeShelf",
     baseURL: baseUrl,
     basePath: "/api/auth",
-    secret:
-      process.env.BETTER_AUTH_SECRET ||
-      process.env.AUTH_SECRET ||
-      process.env.SECRET_KEY ||
-      "tubeshelf-default-key-change-me",
+    secret: resolveAuthSecret().secret,
     trustedProxyHeaders: true,
     database: getDb(),
     advanced: {

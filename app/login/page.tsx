@@ -2,7 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle, Mail, Lock, User } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
+  Mail,
+  Lock,
+  User,
+} from "lucide-react";
 
 interface OIDCProvider {
   id: string;
@@ -24,6 +31,7 @@ export default function Login() {
   const [oidcProviders, setOidcProviders] = useState<OIDCProvider[]>([]);
   const [oidcOnly, setOidcOnly] = useState(false);
   const [publicRegistration, setPublicRegistration] = useState(false);
+  const [insecureDefaultAuthSecret, setInsecureDefaultAuthSecret] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const router = useRouter();
 
@@ -67,12 +75,16 @@ export default function Login() {
         if (settingsData.publicRegistration !== undefined) {
           setPublicRegistration(settingsData.publicRegistration);
         }
+        setInsecureDefaultAuthSecret(
+          !!settingsData?.warnings?.insecureDefaultAuthSecret
+        );
         setSettingsLoaded(true);
       })
       .catch(() => {
         // Silently fail - default to allowing password login
         setOidcOnly(false);
         setPublicRegistration(false);
+        setInsecureDefaultAuthSecret(false);
         setSettingsLoaded(true);
       });
   }, [router]);
@@ -154,6 +166,25 @@ export default function Login() {
                 <p className="text-red-700 dark:text-red-400 font-medium text-sm">
                   {error}
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {insecureDefaultAuthSecret && (
+          <div className="mb-4 animate-in slide-in-from-top-4 fade-in duration-300">
+            <div className="bg-yellow-500/10 border-l-4 border-yellow-500 rounded-r-lg px-4 py-3 shadow-lg">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-yellow-800 dark:text-yellow-300">
+                    Insecure default auth secret is in use
+                  </p>
+                  <p className="mt-1 text-yellow-700/90 dark:text-yellow-200/80">
+                    Set <code>BETTER_AUTH_SECRET</code> (32+ chars) on the server.
+                    Sessions will be invalidated after changing it.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

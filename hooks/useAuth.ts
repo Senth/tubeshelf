@@ -11,8 +11,13 @@ export interface AuthUser {
   authType: "local" | "oidc";
 }
 
+export interface AuthWarnings {
+  insecureDefaultAuthSecret: boolean;
+}
+
 interface UseAuthResult {
   user: AuthUser | null;
+  warnings: AuthWarnings;
   loading: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
@@ -20,6 +25,9 @@ interface UseAuthResult {
 
 export function useAuth(): UseAuthResult {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [warnings, setWarnings] = useState<AuthWarnings>({
+    insecureDefaultAuthSecret: false,
+  });
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -29,15 +37,20 @@ export function useAuth(): UseAuthResult {
         cache: "no-store",
       });
 
+      const data = await res.json().catch(() => null);
+      setWarnings({
+        insecureDefaultAuthSecret: !!data?.warnings?.insecureDefaultAuthSecret,
+      });
+
       if (!res.ok) {
         setUser(null);
         return;
       }
 
-      const data = await res.json();
       setUser(data.user || null);
     } catch {
       setUser(null);
+      setWarnings({ insecureDefaultAuthSecret: false });
     }
   }, []);
 
@@ -69,6 +82,7 @@ export function useAuth(): UseAuthResult {
 
   return {
     user,
+    warnings,
     loading,
     refresh,
     logout,
