@@ -5,6 +5,7 @@ import {
   getAuth,
   mapBetterAuthUser,
 } from "@/lib/betterAuth";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { readSettings } from "@/lib/settingsStore";
 
 function isValidEmail(email: string): boolean {
@@ -13,6 +14,23 @@ function isValidEmail(email: string): boolean {
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipLimit = checkRateLimit({
+      bucket: "auth-login-ip",
+      key: clientIp,
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     const body = await req.json().catch(() => null);
     const email = typeof body?.email === "string" ? body.email.trim() : "";
     const password =
@@ -27,6 +45,22 @@ export async function POST(req: Request) {
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+    }
+
+    const emailLimit = checkRateLimit({
+      bucket: "auth-login-ip-email",
+      key: `${clientIp}:${email.toLowerCase()}`,
+      limit: 10,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!emailLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(emailLimit.retryAfterSeconds) },
+        }
+      );
     }
 
     const settings = await readSettings().catch(() => ({

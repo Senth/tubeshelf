@@ -5,6 +5,7 @@ import {
   getAuth,
   mapBetterAuthUser,
 } from "@/lib/betterAuth";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { readSettings } from "@/lib/settingsStore";
 import { needsSetup } from "@/lib/setup";
 
@@ -14,6 +15,23 @@ function isValidEmail(email: string): boolean {
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipLimit = checkRateLimit({
+      bucket: "auth-register-ip",
+      key: clientIp,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many registration attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     if (needsSetup()) {
       return NextResponse.json(
         { error: "Initial setup is required before registration" },
@@ -44,6 +62,22 @@ export async function POST(req: Request) {
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+    }
+
+    const emailLimit = checkRateLimit({
+      bucket: "auth-register-ip-email",
+      key: `${clientIp}:${email.toLowerCase()}`,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!emailLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many registration attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(emailLimit.retryAfterSeconds) },
+        }
+      );
     }
 
     if (password.length < 8) {

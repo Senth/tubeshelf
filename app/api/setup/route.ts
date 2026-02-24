@@ -7,9 +7,27 @@ import {
   mapBetterAuthUser,
 } from "@/lib/betterAuth";
 import { migrateFromJson } from "@/lib/migrate";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 export async function POST(request: NextRequest) {
   try {
+    const clientIp = getClientIp(request);
+    const ipLimit = checkRateLimit({
+      bucket: "setup-ip",
+      key: clientIp,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many setup attempts. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     // Check if setup is still needed
     if (!needsSetup()) {
       return NextResponse.json(
@@ -19,6 +37,26 @@ export async function POST(request: NextRequest) {
     }
 
     const { name, email, password } = await request.json();
+
+    const emailValue =
+      typeof email === "string" ? String(email).trim().toLowerCase() : "";
+    if (emailValue) {
+      const emailLimit = checkRateLimit({
+        bucket: "setup-ip-email",
+        key: `${clientIp}:${emailValue}`,
+        limit: 3,
+        windowMs: 15 * 60 * 1000,
+      });
+      if (!emailLimit.allowed) {
+        return NextResponse.json(
+          { error: "Too many setup attempts. Please try again later." },
+          {
+            status: 429,
+            headers: { "Retry-After": String(emailLimit.retryAfterSeconds) },
+          }
+        );
+      }
+    }
 
     // Validation
     if (!name || name.trim().length < 2) {
