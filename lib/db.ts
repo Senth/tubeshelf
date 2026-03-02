@@ -31,6 +31,18 @@ function initializeSchema() {
     );
   `);
 
+  // First-seen cache for videos (used to keep feed ordering stable when
+  // YouTube only exposes coarse relative timestamps like "14 hours ago").
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS video_first_seen (
+      video_id TEXT PRIMARY KEY,
+      first_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_video_first_seen_first_seen_at
+    ON video_first_seen(first_seen_at);
+  `);
+
   // Subscription lists
   db.exec(`
     CREATE TABLE IF NOT EXISTS subscription_lists (
