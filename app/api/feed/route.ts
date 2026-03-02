@@ -3,6 +3,7 @@ import { fetchChannelFeed } from "@/lib/videoFetcher";
 import { readLists, writeLists } from "@/lib/subscriptionListStore";
 import { readSettings } from "@/lib/settingsStore";
 import { getCurrentUser } from "@/lib/currentUser";
+import { ensureFirstSeenForVideos } from "@/lib/videoFirstSeenStore";
 
 const CONCURRENCY = 4;
 
@@ -17,9 +18,48 @@ const CACHE_DURATION = 1000; // 1 second cache to prevent duplicate requests
 let pendingResolvers: Array<(result: any) => void> = [];
 
 type ItemSortMeta = {
-  channelOrder: number;
   channelVideoIndex: number;
 };
+
+function compareFeedItems(
+  a: any,
+  b: any,
+  itemSortMeta: WeakMap<object, ItemSortMeta>,
+  firstSeenMap?: Map<string, number>
+) {
+  const aTime = new Date(a.publishedAt).getTime();
+  const bTime = new Date(b.publishedAt).getTime();
+  const timeDiff = bTime - aTime;
+  if (timeDiff !== 0) return timeDiff;
+
+  if (firstSeenMap) {
+    const aFirstSeen = firstSeenMap.get(String(a.id || ""));
+    const bFirstSeen = firstSeenMap.get(String(b.id || ""));
+    if (
+      Number.isFinite(aFirstSeen) &&
+      Number.isFinite(bFirstSeen) &&
+      aFirstSeen !== bFirstSeen
+    ) {
+      // Preserve the order in which this instance first saw tied videos.
+      return (aFirstSeen as number) - (bFirstSeen as number);
+    }
+  }
+
+  const channelDiff = String(a.channelId || "").localeCompare(
+    String(b.channelId || "")
+  );
+  if (channelDiff !== 0) return channelDiff;
+
+  const aMeta = itemSortMeta.get(a as object);
+  const bMeta = itemSortMeta.get(b as object);
+  if (aMeta && bMeta) {
+    // Preserve YouTube's per-channel order when timestamps tie.
+    const channelVideoDiff = aMeta.channelVideoIndex - bMeta.channelVideoIndex;
+    if (channelVideoDiff !== 0) return channelVideoDiff;
+  }
+
+  return String(a.id || "").localeCompare(String(b.id || ""));
+}
 
 export async function GET(req: Request) {
   const user = await getCurrentUser();
@@ -183,9 +223,6 @@ async function handleFeedRequest(
 
     const items: any[] = [];
     const itemSortMeta = new WeakMap<object, ItemSortMeta>();
-    const channelOrderIndex = new Map(
-      channelIds.map((channelId, index) => [channelId, index])
-    );
     // Use a shared queue to avoid race conditions causing duplicate processing
     const queue = [...channelIds];
     // Track which channels had videos (for ranking updates)
@@ -271,7 +308,6 @@ async function handleFeedRequest(
               channelId: video.channelId || current,
             };
             itemSortMeta.set(item, {
-              channelOrder: channelOrderIndex.get(item.channelId || current) ?? 0,
               channelVideoIndex,
             });
             items.push(item);
@@ -314,30 +350,19 @@ async function handleFeedRequest(
       );
     }
 
-    items.sort((a, b) => {
-      const aTime = new Date(a.publishedAt).getTime();
-      const bTime = new Date(b.publishedAt).getTime();
-      const timeDiff = bTime - aTime;
-      if (timeDiff !== 0) return timeDiff;
+    // First pass: deterministic ordering without persisted first-seen values.
+    items.sort((a, b) => compareFeedItems(a, b, itemSortMeta));
 
-      const aMeta = itemSortMeta.get(a as object);
-      const bMeta = itemSortMeta.get(b as object);
-      if (aMeta && bMeta) {
-        const channelOrderDiff = aMeta.channelOrder - bMeta.channelOrder;
-        if (channelOrderDiff !== 0) return channelOrderDiff;
-
-        // Preserve YouTube's per-channel order when relative timestamps tie.
-        const channelVideoDiff = aMeta.channelVideoIndex - bMeta.channelVideoIndex;
-        if (channelVideoDiff !== 0) return channelVideoDiff;
-      }
-
-      const channelDiff = String(a.channelId || "").localeCompare(
-        String(b.channelId || "")
+    // Persist first-seen timestamps in the current deterministic order and use
+    // them as a stable tie-breaker for future refreshes.
+    try {
+      const firstSeenMap = ensureFirstSeenForVideos(
+        items.map((item) => String(item.id || ""))
       );
-      if (channelDiff !== 0) return channelDiff;
-
-      return String(a.id || "").localeCompare(String(b.id || ""));
-    });
+      items.sort((a, b) => compareFeedItems(a, b, itemSortMeta, firstSeenMap));
+    } catch (err) {
+      console.warn("[Feed] Failed to load first-seen ordering cache:", err);
+    }
 
     // Log durations for debugging
     const videosWithDuration = items.filter((item) => item.duration);
