@@ -125,24 +125,32 @@ function parseVideoRenderer(
         switch (unit) {
           case "second":
             now.setSeconds(now.getSeconds() - value);
+            now.setMilliseconds(0);
             break;
           case "minute":
             now.setMinutes(now.getMinutes() - value);
+            now.setSeconds(0, 0);
             break;
           case "hour":
             now.setHours(now.getHours() - value);
+            // YouTube only exposes hour precision here; avoid fake minute/second order.
+            now.setMinutes(0, 0, 0);
             break;
           case "day":
             now.setDate(now.getDate() - value);
+            now.setHours(0, 0, 0, 0);
             break;
           case "week":
             now.setDate(now.getDate() - value * 7);
+            now.setHours(0, 0, 0, 0);
             break;
           case "month":
             now.setMonth(now.getMonth() - value);
+            now.setHours(0, 0, 0, 0);
             break;
           case "year":
             now.setFullYear(now.getFullYear() - value);
+            now.setHours(0, 0, 0, 0);
             break;
         }
         publishedAt = now.toISOString();
