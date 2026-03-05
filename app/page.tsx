@@ -32,7 +32,7 @@ import {
   ArrowUp,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
-import { feedManager } from "@/lib/feedManager";
+import { AuthExpiredError, feedManager } from "@/lib/feedManager";
 import { useAuth } from "@/hooks/useAuth";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
@@ -479,6 +479,12 @@ export default function Home() {
       const listsRes = await fetch("/api/subscription-lists", {
         credentials: "include",
       });
+      if (listsRes.status === 401) {
+        throw new AuthExpiredError();
+      }
+      if (!listsRes.ok) {
+        throw new Error(`HTTP error! status: ${listsRes.status}`);
+      }
       const listsData = await listsRes.json();
       setSubscriptionLists(listsData.lists || []);
       setCurrentListId((prevId) => {
@@ -491,6 +497,10 @@ export default function Home() {
       // Refresh feed via singleton manager
       await feedManager.refresh();
     } catch (err: any) {
+      if (err instanceof AuthExpiredError) {
+        router.replace("/login");
+        return;
+      }
       console.error("Failed to refresh:", err);
       setError(err?.message || "Failed to load data");
     } finally {
@@ -713,7 +723,13 @@ export default function Home() {
               setShowWelcomeWizard(true);
             } else {
               setShowWelcomeWizard(false);
-              feedManager.initialize();
+              feedManager.initialize().catch((initErr) => {
+                if (initErr instanceof AuthExpiredError) {
+                  router.replace("/login");
+                  return;
+                }
+                console.error("Failed to initialize feed:", initErr);
+              });
             }
           } else {
             console.error("[Init] Failed to load user state from database");
