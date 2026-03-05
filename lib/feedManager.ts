@@ -17,6 +17,13 @@ type Listener = (data: FeedData) => void;
 
 const CACHE_KEY = "tubeshelf_feed_cache";
 
+export class AuthExpiredError extends Error {
+  constructor(message = "Session expired. Please sign in again.") {
+    super(message);
+    this.name = "AuthExpiredError";
+  }
+}
+
 class FeedManager {
   private static instance: FeedManager;
   private data: FeedData = {
@@ -96,7 +103,7 @@ class FeedManager {
     // Auto-initialize on first subscription to fetch fresh data
     // Skip if skipAutoInit is true (e.g., during welcome wizard)
     if (!this.initialized && !this.initPromise && !skipAutoInit) {
-      this.initialize();
+      this.initialize().catch(() => undefined);
     }
 
     // Return unsubscribe function
@@ -124,114 +131,128 @@ class FeedManager {
     }
 
     this.initPromise = (async () => {
-      // Show fetching state to indicate background refresh
-      // Show loading only if we don't have cached data
-      if (!this.hasCachedData) {
-        this.updateData({ loading: true, fetching: true, error: null });
-      } else {
-        this.updateData({ fetching: true, error: null });
-      }
-
-      // Retry logic for dev server race condition
-      const maxRetries = 3;
-      let lastError: Error | null = null;
-
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          if (attempt > 0) {
-            // Wait before retrying (exponential backoff)
-            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
-            console.log(
-              `[FeedManager] Retrying fetch (attempt ${
-                attempt + 1
-              }/${maxRetries}) after ${delay}ms...`
-            );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-          }
-
-          const response = await fetch(`/api/feed?refresh=false`);
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const json = await response.json();
-          const items = json.items || [];
-
-          const videos: Video[] = items.map((raw: any) => ({
-            id: raw.id || raw.videoId,
-            title: raw.title || "Untitled",
-            channel:
-              raw.channelTitle ||
-              raw.uploaderName ||
-              raw.channel ||
-              "Unknown Channel",
-            channelId: raw.channelId || raw.uploaderId || "",
-            thumbnail:
-              raw.thumbnail ||
-              raw.thumbnailUrl ||
-              `https://i.ytimg.com/vi/${raw.id || raw.videoId}/hqdefault.jpg`,
-            duration: raw.duration,
-            views: raw.viewCount ?? raw.views,
-            uploadedAt:
-              raw.publishedAt ||
-              raw.uploadDate ||
-              raw.uploaded ||
-              new Date().toISOString(),
-            url:
-              raw.url ||
-              `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
-            isMemberOnly: raw.isMemberOnly || raw.membersOnly || false,
-          }));
-
-          // Only update if data actually changed (prevents visual flicker when cache matches fresh data)
-          const dataChanged =
-            this.data.videos.length !== videos.length ||
-            !this.arraysHaveSameIds(this.data.videos, videos);
-
-          if (dataChanged || !this.hasCachedData) {
-            this.updateData({
-              videos,
-              loading: false,
-              fetching: false,
-              currentChannelTitle: null,
-            });
-          } else {
-            // Don't update arrays - keep showing cached data
-            // Just update fetching/loading states
-            this.updateData({
-              loading: false,
-              fetching: false,
-              currentChannelTitle: null,
-            });
-          }
-
-          this.initialized = true;
-          this.saveCache();
-
-          // Success - break out of retry loop
-          break;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.error(
-            `[FeedManager] Error (attempt ${attempt + 1}/${maxRetries}):`,
-            err
-          );
-
-          // If this was the last attempt, update with error state
-          if (attempt === maxRetries - 1) {
-            this.updateData({
-              error: lastError.message || "Failed to fetch feed",
-              loading: false,
-              fetching: false,
-              currentChannelTitle: null,
-            });
-          }
-          // Otherwise continue to next retry attempt
+      try {
+        // Show fetching state to indicate background refresh
+        // Show loading only if we don't have cached data
+        if (!this.hasCachedData) {
+          this.updateData({ loading: true, fetching: true, error: null });
+        } else {
+          this.updateData({ fetching: true, error: null });
         }
-      }
 
-      this.initPromise = null;
+        // Retry logic for dev server race condition
+        const maxRetries = 3;
+        let lastError: Error | null = null;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              // Wait before retrying (exponential backoff)
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
+              console.log(
+                `[FeedManager] Retrying fetch (attempt ${
+                  attempt + 1
+                }/${maxRetries}) after ${delay}ms...`
+              );
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+
+            const response = await fetch(`/api/feed?refresh=false`);
+
+            if (!response.ok) {
+              if (response.status === 401) {
+                throw new AuthExpiredError();
+              }
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const json = await response.json();
+            const items = json.items || [];
+
+            const videos: Video[] = items.map((raw: any) => ({
+              id: raw.id || raw.videoId,
+              title: raw.title || "Untitled",
+              channel:
+                raw.channelTitle ||
+                raw.uploaderName ||
+                raw.channel ||
+                "Unknown Channel",
+              channelId: raw.channelId || raw.uploaderId || "",
+              thumbnail:
+                raw.thumbnail ||
+                raw.thumbnailUrl ||
+                `https://i.ytimg.com/vi/${raw.id || raw.videoId}/hqdefault.jpg`,
+              duration: raw.duration,
+              views: raw.viewCount ?? raw.views,
+              uploadedAt:
+                raw.publishedAt ||
+                raw.uploadDate ||
+                raw.uploaded ||
+                new Date().toISOString(),
+              url:
+                raw.url ||
+                `https://www.youtube.com/watch?v=${raw.id || raw.videoId}`,
+              isMemberOnly: raw.isMemberOnly || raw.membersOnly || false,
+            }));
+
+            // Only update if data actually changed (prevents visual flicker when cache matches fresh data)
+            const dataChanged =
+              this.data.videos.length !== videos.length ||
+              !this.arraysHaveSameIds(this.data.videos, videos);
+
+            if (dataChanged || !this.hasCachedData) {
+              this.updateData({
+                videos,
+                loading: false,
+                fetching: false,
+                currentChannelTitle: null,
+              });
+            } else {
+              // Don't update arrays - keep showing cached data
+              // Just update fetching/loading states
+              this.updateData({
+                loading: false,
+                fetching: false,
+                currentChannelTitle: null,
+              });
+            }
+
+            this.initialized = true;
+            this.saveCache();
+            return;
+          } catch (err) {
+            if (err instanceof AuthExpiredError) {
+              this.initialized = false;
+              this.updateData({
+                loading: false,
+                fetching: false,
+                currentChannelTitle: null,
+                error: null,
+              });
+              throw err;
+            }
+
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.error(
+              `[FeedManager] Error (attempt ${attempt + 1}/${maxRetries}):`,
+              err
+            );
+
+            // If this was the last attempt, update with error state
+            if (attempt === maxRetries - 1) {
+              this.updateData({
+                error: lastError.message || "Failed to fetch feed",
+                loading: false,
+                fetching: false,
+                currentChannelTitle: null,
+              });
+            }
+            // Otherwise continue to next retry attempt
+          }
+        }
+      } finally {
+        this.initPromise = null;
+      }
     })();
 
     return this.initPromise;
