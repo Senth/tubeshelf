@@ -336,6 +336,7 @@ function migrateUsersDateFields() {
     "[Migration] Converting users date fields to DATE type to satisfy BetterAuth",
   );
 
+  db.exec("PRAGMA foreign_keys = OFF");
   try {
     // Clean up any leftover users_old from failed previous migration
     db.exec("DROP TABLE IF EXISTS users_old");
@@ -403,6 +404,8 @@ function migrateUsersDateFields() {
       console.error("[Migration] Failed to restore users table:", restoreError);
     }
     throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 
@@ -543,23 +546,29 @@ async function initBetterAuthSchema() {
   }
 
   if (runMigrations) {
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      const first = args[0];
-      if (
-        typeof first === "string" &&
-        BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
-          first.includes(message),
-        )
-      ) {
-        return;
-      }
-      originalWarn(...args);
-    };
+    const db = getDb();
+    db.exec("PRAGMA foreign_keys = OFF");
     try {
-      await runMigrations();
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        const first = args[0];
+        if (
+          typeof first === "string" &&
+          BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
+            first.includes(message),
+          )
+        ) {
+          return;
+        }
+        originalWarn(...args);
+      };
+      try {
+        await runMigrations();
+      } finally {
+        console.warn = originalWarn;
+      }
     } finally {
-      console.warn = originalWarn;
+      db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
