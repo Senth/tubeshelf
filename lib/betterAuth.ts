@@ -419,6 +419,34 @@ function ensureUserColumns() {
   }>;
   const names = new Set(columns.map((c) => c.name));
 
+  if (columns.length === 0) {
+    console.log(
+      "[Migration] Users table missing, recreating with correct schema",
+    );
+    db.exec(`
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        password_hash TEXT,
+        oidc_provider TEXT,
+        oidc_subject TEXT,
+        created_at DATE NOT NULL DEFAULT (datetime('now')),
+        last_login_at DATE,
+        updated_at DATE,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        is_default_admin INTEGER NOT NULL DEFAULT 0,
+        email_verified INTEGER NOT NULL DEFAULT 1,
+        image TEXT
+      );
+    `);
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_provider, oidc_subject);
+    `);
+    return;
+  }
+
   if (!names.has("updated_at")) {
     db.exec("ALTER TABLE users ADD COLUMN updated_at DATE");
   }
@@ -522,55 +550,8 @@ async function initBetterAuthSchema() {
 
   const auth = createAuth();
 
-  let runMigrations: (() => Promise<void>) | null = null;
-  try {
-    const dbModule = await import("better-auth/db");
-    const getMigrationsFn =
-      typeof (dbModule as any).getMigrations === "function"
-        ? (dbModule as any).getMigrations
-        : undefined;
-
-    if (getMigrationsFn) {
-      const migrations = await getMigrationsFn(auth.options);
-      if (migrations && typeof migrations.runMigrations === "function") {
-        runMigrations = migrations.runMigrations.bind(migrations);
-      } else if (typeof migrations === "function") {
-        runMigrations = migrations;
-      }
-    }
-  } catch (error) {
-    console.warn(
-      "[Auth] better-auth/db.getMigrations is not available; skipping built-in better-auth migrations.",
-      error,
-    );
-  }
-
-  if (runMigrations) {
-    const db = getDb();
-    db.exec("PRAGMA foreign_keys = OFF");
-    try {
-      const originalWarn = console.warn;
-      console.warn = (...args: unknown[]) => {
-        const first = args[0];
-        if (
-          typeof first === "string" &&
-          BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
-            first.includes(message),
-          )
-        ) {
-          return;
-        }
-        originalWarn(...args);
-      };
-      try {
-        await runMigrations();
-      } finally {
-        console.warn = originalWarn;
-      }
-    } finally {
-      db.exec("PRAGMA foreign_keys = ON");
-    }
-  }
+  // Skip better-auth built-in migrations since we handle schema manually
+  // to avoid conflicts with SQLite foreign key constraints during table renames
 
   ensureLegacyAccountsBackfilled();
 }
