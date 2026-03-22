@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
 import { betterAuth } from "better-auth";
-import { getMigrations } from "better-auth/db";
 import {
   genericOAuth,
   type GenericOAuthConfig,
@@ -402,6 +401,11 @@ function ensureUserColumns() {
 
   if (!names.has("updated_at")) {
     db.exec("ALTER TABLE users ADD COLUMN updated_at DATE");
+  }
+  if (!names.has("email_verified")) {
+    db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!names.has("image")) {
     db.exec("ALTER TABLE users ADD COLUMN image TEXT");
   }
 
@@ -495,24 +499,49 @@ async function initBetterAuthSchema() {
   ensureUserColumns();
 
   const auth = createAuth();
-  const { runMigrations } = await getMigrations(auth.options);
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
-    const first = args[0];
-    if (
-      typeof first === "string" &&
-      BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
-        first.includes(message),
-      )
-    ) {
-      return;
-    }
-    originalWarn(...args);
-  };
+
+  let runMigrations: (() => Promise<void>) | null = null;
   try {
-    await runMigrations();
-  } finally {
-    console.warn = originalWarn;
+    const dbModule = await import("better-auth/db");
+    const getMigrationsFn =
+      typeof (dbModule as any).getMigrations === "function"
+        ? (dbModule as any).getMigrations
+        : undefined;
+
+    if (getMigrationsFn) {
+      const migrations = await getMigrationsFn(auth.options);
+      if (migrations && typeof migrations.runMigrations === "function") {
+        runMigrations = migrations.runMigrations.bind(migrations);
+      } else if (typeof migrations === "function") {
+        runMigrations = migrations;
+      }
+    }
+  } catch (error) {
+    console.warn(
+      "[Auth] better-auth/db.getMigrations is not available; skipping built-in better-auth migrations.",
+      error,
+    );
+  }
+
+  if (runMigrations) {
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      const first = args[0];
+      if (
+        typeof first === "string" &&
+        BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
+          first.includes(message),
+        )
+      ) {
+        return;
+      }
+      originalWarn(...args);
+    };
+    try {
+      await runMigrations();
+    } finally {
+      console.warn = originalWarn;
+    }
   }
 
   ensureLegacyAccountsBackfilled();
