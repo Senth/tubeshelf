@@ -3,6 +3,9 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
+# Update packages for security
+RUN apk update && apk upgrade && rm -rf /var/cache/apk/*
+
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
 
@@ -20,8 +23,8 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init && \
+# Install dumb-init for proper signal handling and update packages for security
+RUN apk update && apk upgrade && apk add --no-cache dumb-init && \
     rm -rf /var/cache/apk/*
 
 # Copy only necessary built files from builder (standalone includes everything needed)
