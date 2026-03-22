@@ -81,7 +81,7 @@ function initializeSchema() {
   // Check if table exists first
   const playbackHistoryExists = db
     .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='playback_history'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='playback_history'",
     )
     .get() as { name: string } | undefined;
 
@@ -167,8 +167,8 @@ function initializeSchema() {
       password_hash TEXT,
       oidc_provider TEXT,
       oidc_subject TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_login_at TEXT,
+      created_at DATE NOT NULL DEFAULT (datetime('now')),
+      last_login_at DATE,
       is_admin INTEGER NOT NULL DEFAULT 0,
       is_default_admin INTEGER NOT NULL DEFAULT 0
     );
@@ -212,7 +212,7 @@ function runMigrations() {
     // Migration: Add is_default_admin column if it doesn't exist
     const tableInfo = db.pragma("table_info(users)") as Array<any>;
     const hasDefaultAdminColumn = tableInfo.some(
-      (col: any) => col.name === "is_default_admin"
+      (col: any) => col.name === "is_default_admin",
     );
 
     if (!hasDefaultAdminColumn) {
@@ -225,21 +225,21 @@ function runMigrations() {
     // Migration: Make playback_history user-scoped
     // Check if playback_history has user_id column
     const playbackHistoryInfo = db.pragma(
-      "table_info(playback_history)"
+      "table_info(playback_history)",
     ) as Array<any>;
     const hasUserIdColumn = playbackHistoryInfo.some(
-      (col: any) => col.name === "user_id"
+      (col: any) => col.name === "user_id",
     );
 
     if (!hasUserIdColumn) {
       console.log(
-        "[Migration] Adding user_id to playback_history (making it user-scoped)"
+        "[Migration] Adding user_id to playback_history (making it user-scoped)",
       );
       try {
         // Backup data (without user association since old data has no user_id)
         const backupData = db
           .prepare(
-            "SELECT video_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed FROM playback_history"
+            "SELECT video_id, video_title, channel_id, channel_name, thumbnail, timestamp, duration, progress, completed FROM playback_history",
           )
           .all();
 
@@ -273,7 +273,7 @@ function runMigrations() {
         // Note: We don't restore old data since we can't associate it with users
         // This is acceptable as playback history is non-critical data
         console.log(
-          `[Migration] Recreated playback_history with user_id (cleared ${backupData.length} unattributable entries)`
+          `[Migration] Recreated playback_history with user_id (cleared ${backupData.length} unattributable entries)`,
         );
       } catch (error) {
         console.error("[Migration] Error migrating playback_history:", error);
@@ -288,7 +288,7 @@ function runMigrations() {
       id: string;
     }>;
     const configStmt = db.prepare(
-      "INSERT OR REPLACE INTO user_config (user_id, key, value) VALUES (?, ?, ?)"
+      "INSERT OR REPLACE INTO user_config (user_id, key, value) VALUES (?, ?, ?)",
     );
 
     for (const user of users) {
@@ -300,7 +300,7 @@ function runMigrations() {
       if (!existing) {
         if (process.env.CLI_MODE !== "true") {
           console.log(
-            `[Migration] Setting hasCompletedWelcome for user ${user.id}`
+            `[Migration] Setting hasCompletedWelcome for user ${user.id}`,
           );
         }
         configStmt.run(user.id, "hasCompletedWelcome", JSON.stringify(true));

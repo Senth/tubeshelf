@@ -4,18 +4,25 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db";
-import { genericOAuth, type GenericOAuthConfig } from "better-auth/plugins/generic-oauth";
+import {
+  genericOAuth,
+  type GenericOAuthConfig,
+} from "better-auth/plugins/generic-oauth";
 import { decodeJwt } from "jose";
 import { getDb } from "@/lib/db";
 import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
-import { getOIDCProvider, getOIDCProviders, type OIDCProvider } from "@/lib/oidc";
+import {
+  getOIDCProvider,
+  getOIDCProviders,
+  type OIDCProvider,
+} from "@/lib/oidc";
 
 const BCRYPT_ROUNDS = 12;
 const LEGACY_SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;
 const GENERATED_BETTER_AUTH_SECRET_FILE = path.join(
   process.cwd(),
   "data",
-  ".better-auth-secret"
+  ".better-auth-secret",
 );
 const BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS = [
   "Field created_at in table users has a different type in the database. Expected date but got TEXT.",
@@ -23,7 +30,9 @@ const BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS = [
   "Field last_login_at in table users has a different type in the database. Expected date but got TEXT.",
 ];
 
-type BetterAuthSession = Awaited<ReturnType<ReturnType<typeof createAuth>["api"]["getSession"]>>;
+type BetterAuthSession = Awaited<
+  ReturnType<ReturnType<typeof createAuth>["api"]["getSession"]>
+>;
 
 declare global {
   // eslint-disable-next-line no-var
@@ -55,7 +64,10 @@ function readPersistedGeneratedAuthSecret():
   | { secret: string; source: "generated-memory" } {
   try {
     if (existsSync(GENERATED_BETTER_AUTH_SECRET_FILE)) {
-      const existing = readFileSync(GENERATED_BETTER_AUTH_SECRET_FILE, "utf8").trim();
+      const existing = readFileSync(
+        GENERATED_BETTER_AUTH_SECRET_FILE,
+        "utf8",
+      ).trim();
       if (existing) {
         return { secret: existing, source: "generated-file" };
       }
@@ -76,14 +88,17 @@ function readPersistedGeneratedAuthSecret():
       return { secret: generated, source: "generated-file" };
     } catch (writeError: any) {
       if (writeError?.code === "EEXIST") {
-        const existing = readFileSync(GENERATED_BETTER_AUTH_SECRET_FILE, "utf8").trim();
+        const existing = readFileSync(
+          GENERATED_BETTER_AUTH_SECRET_FILE,
+          "utf8",
+        ).trim();
         if (existing) {
           return { secret: existing, source: "generated-file" };
         }
       }
       console.warn(
         `[Auth] Failed to persist generated BetterAuth secret at ${GENERATED_BETTER_AUTH_SECRET_FILE}. Using in-memory secret for this process only.`,
-        writeError
+        writeError,
       );
       return { secret: generated, source: "generated-memory" };
     }
@@ -91,7 +106,7 @@ function readPersistedGeneratedAuthSecret():
     const generated = generateRandomSecret();
     console.warn(
       `[Auth] Failed to load or create BetterAuth secret fallback file at ${GENERATED_BETTER_AUTH_SECRET_FILE}. Using in-memory secret for this process only.`,
-      error
+      error,
     );
     return { secret: generated, source: "generated-memory" };
   }
@@ -124,7 +139,8 @@ function resolveAuthSecret(): { secret: string; status: AuthSecretStatus } {
     secret,
     status: {
       source,
-      isGeneratedFallback: source === "generated-file" || source === "generated-memory",
+      isGeneratedFallback:
+        source === "generated-file" || source === "generated-memory",
       isTooShort: length < 32,
       length,
     },
@@ -139,13 +155,13 @@ function warnIfAuthSecretIsInsecure() {
 
   if (status.isGeneratedFallback) {
     console.warn(
-      "[Auth] No BETTER_AUTH_SECRET is configured. Using an auto-generated instance-local BetterAuth secret. Set BETTER_AUTH_SECRET (32+ chars) for portability and multi-instance deployments. Changing the secret will invalidate BetterAuth sessions."
+      "[Auth] No BETTER_AUTH_SECRET is configured. Using an auto-generated instance-local BetterAuth secret. Set BETTER_AUTH_SECRET (32+ chars) for portability and multi-instance deployments. Changing the secret will invalidate BetterAuth sessions.",
     );
     if (!status.isTooShort) return;
   }
 
   console.warn(
-    `[Auth] BetterAuth secret from ${status.source} is only ${status.length} chars. Use BETTER_AUTH_SECRET with at least 32 characters.`
+    `[Auth] BetterAuth secret from ${status.source} is only ${status.length} chars. Use BETTER_AUTH_SECRET with at least 32 characters.`,
   );
 }
 
@@ -165,8 +181,12 @@ function getRequestBaseUrl(request?: Request): string | undefined {
   }
 
   const url = new URL(request.url);
-  const forwardedHost = firstHeaderValue(request.headers.get("x-forwarded-host"));
-  const forwardedProto = firstHeaderValue(request.headers.get("x-forwarded-proto"));
+  const forwardedHost = firstHeaderValue(
+    request.headers.get("x-forwarded-host"),
+  );
+  const forwardedProto = firstHeaderValue(
+    request.headers.get("x-forwarded-proto"),
+  );
 
   if (forwardedHost) {
     const proto = forwardedProto || url.protocol.replace(":", "");
@@ -187,7 +207,7 @@ function parseScopes(scopes?: string | null): string[] | undefined {
 
 function computeAdminFromClaims(
   provider: Pick<OIDCProvider, "groupClaimName" | "adminGroupValue">,
-  claims: Record<string, unknown>
+  claims: Record<string, unknown>,
 ): boolean | null {
   if (!provider.groupClaimName || !provider.adminGroupValue) return null;
 
@@ -198,19 +218,31 @@ function computeAdminFromClaims(
   return values.map(String).includes(provider.adminGroupValue);
 }
 
-function redirectUriForProvider(baseUrl: string, provider: OIDCProvider): string {
+function redirectUriForProvider(
+  baseUrl: string,
+  provider: OIDCProvider,
+): string {
   return provider.redirectUri || `${baseUrl}/api/auth/oidc/callback`;
 }
 
-function toGenericOAuthConfig(baseUrl: string, provider: OIDCProvider): GenericOAuthConfig {
+function toGenericOAuthConfig(
+  baseUrl: string,
+  provider: OIDCProvider,
+): GenericOAuthConfig {
   return {
     providerId: provider.id,
     discoveryUrl:
-      provider.discoveryUrl || `${provider.issuer}/.well-known/openid-configuration`,
+      provider.discoveryUrl ||
+      `${provider.issuer}/.well-known/openid-configuration`,
     issuer: provider.issuer,
     clientId: provider.clientId,
     clientSecret: provider.clientSecret,
-    scopes: parseScopes(provider.scopes) || ["openid", "profile", "email", "groups"],
+    scopes: parseScopes(provider.scopes) || [
+      "openid",
+      "profile",
+      "email",
+      "groups",
+    ],
     redirectURI: redirectUriForProvider(baseUrl, provider),
     // Keep sign-up behavior compatible with the current implementation (OIDC auto-provisions users).
     disableImplicitSignUp: false,
@@ -222,12 +254,16 @@ function toGenericOAuthConfig(baseUrl: string, provider: OIDCProvider): GenericO
           : typeof profile.id === "string"
             ? profile.id
             : undefined;
-      const isAdmin = computeAdminFromClaims(provider, profile as Record<string, unknown>);
+      const isAdmin = computeAdminFromClaims(
+        provider,
+        profile as Record<string, unknown>,
+      );
 
       return {
         name:
           (typeof profile.name === "string" && profile.name) ||
-          (typeof profile.preferred_username === "string" && profile.preferred_username) ||
+          (typeof profile.preferred_username === "string" &&
+            profile.preferred_username) ||
           undefined,
         oidcProvider: provider.id,
         oidcSubject,
@@ -239,7 +275,8 @@ function toGenericOAuthConfig(baseUrl: string, provider: OIDCProvider): GenericO
 
 function syncAccountBackToLegacyFields(account: Record<string, any>) {
   const db = getDb();
-  const providerId = typeof account.providerId === "string" ? account.providerId : "";
+  const providerId =
+    typeof account.providerId === "string" ? account.providerId : "";
   const userId = typeof account.userId === "string" ? account.userId : "";
   if (!providerId || !userId) return;
 
@@ -247,7 +284,7 @@ function syncAccountBackToLegacyFields(account: Record<string, any>) {
     if (typeof account.password === "string") {
       db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
         account.password,
-        userId
+        userId,
       );
     }
     return;
@@ -268,30 +305,103 @@ function syncAccountBackToLegacyFields(account: Record<string, any>) {
 
   if (isAdminUpdate === null) {
     db.prepare(
-      "UPDATE users SET oidc_provider = COALESCE(oidc_provider, ?), oidc_subject = COALESCE(oidc_subject, ?) WHERE id = ?"
+      "UPDATE users SET oidc_provider = COALESCE(oidc_provider, ?), oidc_subject = COALESCE(oidc_subject, ?) WHERE id = ?",
     ).run(providerId, account.accountId || null, userId);
     return;
   }
 
   db.prepare(
-    "UPDATE users SET oidc_provider = ?, oidc_subject = ?, is_admin = ? WHERE id = ?"
+    "UPDATE users SET oidc_provider = ?, oidc_subject = ?, is_admin = ? WHERE id = ?",
   ).run(providerId, account.accountId || null, isAdminUpdate ? 1 : 0, userId);
+}
+
+function migrateUsersDateFields() {
+  const db = getDb();
+  const columns = db.prepare("PRAGMA table_info(users)").all() as Array<{
+    name: string;
+    type: string;
+  }>;
+
+  if (columns.length === 0) return;
+
+  const needsMigration = ["created_at", "updated_at", "last_login_at"].some(
+    (col) => {
+      const column = columns.find((c) => c.name === col);
+      return !column || column.type.toUpperCase() !== "DATE";
+    },
+  );
+
+  if (!needsMigration) return;
+
+  console.log(
+    "[Migration] Converting users date fields to DATE type to satisfy BetterAuth",
+  );
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    const tx = db.transaction(() => {
+      db.exec("ALTER TABLE users RENAME TO users_old");
+
+      db.exec(`
+        CREATE TABLE users (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          name TEXT,
+          password_hash TEXT,
+          oidc_provider TEXT,
+          oidc_subject TEXT,
+          created_at DATE NOT NULL DEFAULT (datetime('now')),
+          last_login_at DATE,
+          updated_at DATE,
+          is_admin INTEGER NOT NULL DEFAULT 0,
+          is_default_admin INTEGER NOT NULL DEFAULT 0,
+          email_verified INTEGER NOT NULL DEFAULT 1,
+          image TEXT
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO users (
+          id, email, name, password_hash, oidc_provider, oidc_subject,
+          created_at, last_login_at, updated_at, is_admin, is_default_admin,
+          email_verified, image
+        )
+        SELECT
+          id, email, name, password_hash, oidc_provider, oidc_subject,
+          created_at, last_login_at,
+          COALESCE(updated_at, created_at),
+          is_admin, is_default_admin,
+          COALESCE(email_verified, 1),
+          image
+        FROM users_old;
+      `);
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_provider, oidc_subject);
+      `);
+
+      db.exec("DROP TABLE users_old");
+    });
+
+    tx();
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 function ensureUserColumns() {
   const db = getDb();
-  const columns = db
-    .prepare("PRAGMA table_info(users)")
-    .all() as Array<{ name: string }>;
+
+  migrateUsersDateFields();
+
+  const columns = db.prepare("PRAGMA table_info(users)").all() as Array<{
+    name: string;
+  }>;
   const names = new Set(columns.map((c) => c.name));
 
   if (!names.has("updated_at")) {
-    db.exec("ALTER TABLE users ADD COLUMN updated_at TEXT");
-  }
-  if (!names.has("email_verified")) {
-    db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!names.has("image")) {
+    db.exec("ALTER TABLE users ADD COLUMN updated_at DATE");
     db.exec("ALTER TABLE users ADD COLUMN image TEXT");
   }
 
@@ -309,7 +419,7 @@ function ensureLegacyAccountsBackfilled() {
 
   const hasAuthAccounts = db
     .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_accounts'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_accounts'",
     )
     .get() as { name: string } | undefined;
 
@@ -318,31 +428,31 @@ function ensureLegacyAccountsBackfilled() {
   const users = db
     .prepare(
       `SELECT id, password_hash as passwordHash, oidc_provider as oidcProvider, oidc_subject as oidcSubject, created_at as createdAt
-       FROM users`
+       FROM users`,
     )
     .all() as Array<{
-      id: string;
-      passwordHash: string | null;
-      oidcProvider: string | null;
-      oidcSubject: string | null;
-      createdAt: string | null;
-    }>;
+    id: string;
+    passwordHash: string | null;
+    oidcProvider: string | null;
+    oidcSubject: string | null;
+    createdAt: string | null;
+  }>;
 
   const insertCredential = db.prepare(
     `INSERT INTO auth_accounts (
       id, created_at, updated_at, provider_id, account_id, user_id, password
-    ) VALUES (?, ?, ?, 'credential', ?, ?, ?)`
+    ) VALUES (?, ?, ?, 'credential', ?, ?, ?)`,
   );
   const insertOidc = db.prepare(
     `INSERT INTO auth_accounts (
       id, created_at, updated_at, provider_id, account_id, user_id
-    ) VALUES (?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
   );
   const hasCredential = db.prepare(
-    `SELECT 1 FROM auth_accounts WHERE user_id = ? AND provider_id = 'credential' LIMIT 1`
+    `SELECT 1 FROM auth_accounts WHERE user_id = ? AND provider_id = 'credential' LIMIT 1`,
   );
   const hasProviderAccount = db.prepare(
-    `SELECT 1 FROM auth_accounts WHERE user_id = ? AND provider_id = ? AND account_id = ? LIMIT 1`
+    `SELECT 1 FROM auth_accounts WHERE user_id = ? AND provider_id = ? AND account_id = ? LIMIT 1`,
   );
 
   const now = new Date().toISOString();
@@ -357,19 +467,21 @@ function ensureLegacyAccountsBackfilled() {
           createdAt,
           user.id,
           user.id,
-          user.passwordHash
+          user.passwordHash,
         );
       }
 
       if (user.oidcProvider && user.oidcSubject) {
-        if (!hasProviderAccount.get(user.id, user.oidcProvider, user.oidcSubject)) {
+        if (
+          !hasProviderAccount.get(user.id, user.oidcProvider, user.oidcSubject)
+        ) {
           insertOidc.run(
             crypto.randomBytes(16).toString("hex"),
             createdAt,
             createdAt,
             user.oidcProvider,
             user.oidcSubject,
-            user.id
+            user.id,
           );
         }
       }
@@ -390,7 +502,7 @@ async function initBetterAuthSchema() {
     if (
       typeof first === "string" &&
       BETTER_AUTH_MIGRATION_WARNINGS_TO_SUPPRESS.some((message) =>
-        first.includes(message)
+        first.includes(message),
       )
     ) {
       return;
@@ -412,7 +524,7 @@ export async function ensureBetterAuthReady() {
       (error) => {
         globalThis.__tubeshelfBetterAuthReadyPromise = undefined;
         throw error;
-      }
+      },
     );
   }
 
@@ -423,7 +535,7 @@ function createAuth(request?: Request) {
   warnIfAuthSecretIsInsecure();
   const baseUrl = getRequestBaseUrl(request) || "http://localhost:3000";
   const oidcConfigs = getOIDCProviders().map((provider) =>
-    toGenericOAuthConfig(baseUrl, provider)
+    toGenericOAuthConfig(baseUrl, provider),
   );
 
   return betterAuth({
@@ -532,7 +644,9 @@ function createAuth(request?: Request) {
         create: {
           after: async (session) => {
             getDb()
-              .prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
+              .prepare(
+                "UPDATE users SET last_login_at = datetime('now') WHERE id = ?",
+              )
               .run(session.userId);
           },
         },
@@ -568,10 +682,13 @@ export type AppAuthUser = {
   authType: "local" | "oidc";
 };
 
-export function mapBetterAuthUser(user: Record<string, any> | null | undefined): AppAuthUser | null {
+export function mapBetterAuthUser(
+  user: Record<string, any> | null | undefined,
+): AppAuthUser | null {
   if (!user) return null;
 
-  const oidcProvider = typeof user.oidcProvider === "string" ? user.oidcProvider : null;
+  const oidcProvider =
+    typeof user.oidcProvider === "string" ? user.oidcProvider : null;
 
   return {
     id: String(user.id),
@@ -594,7 +711,10 @@ export async function getSessionFromHeaderBag(headerBag: Headers) {
   return auth.api.getSession({ headers: headerBag });
 }
 
-export function appendSetCookieHeaders(target: Headers, source?: Headers | null) {
+export function appendSetCookieHeaders(
+  target: Headers,
+  source?: Headers | null,
+) {
   if (!source) return;
   source.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie") {
