@@ -412,6 +412,9 @@ function migrateUsersDateFields() {
 function ensureUserColumns() {
   const db = getDb();
 
+  // Clean up any leftover corrupted tables from failed migrations
+  db.exec("DROP TABLE IF EXISTS users_old");
+
   migrateUsersDateFields();
 
   const columns = db.prepare("PRAGMA table_info(users)").all() as Array<{
