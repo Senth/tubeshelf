@@ -336,56 +336,73 @@ function migrateUsersDateFields() {
     "[Migration] Converting users date fields to DATE type to satisfy BetterAuth",
   );
 
-  db.exec("PRAGMA foreign_keys = OFF");
   try {
-    const tx = db.transaction(() => {
-      db.exec("ALTER TABLE users RENAME TO users_old");
+    // Clean up any leftover users_old from failed previous migration
+    db.exec("DROP TABLE IF EXISTS users_old");
 
-      db.exec(`
-        CREATE TABLE users (
-          id TEXT PRIMARY KEY,
-          email TEXT UNIQUE NOT NULL,
-          name TEXT,
-          password_hash TEXT,
-          oidc_provider TEXT,
-          oidc_subject TEXT,
-          created_at DATE NOT NULL DEFAULT (datetime('now')),
-          last_login_at DATE,
-          updated_at DATE,
-          is_admin INTEGER NOT NULL DEFAULT 0,
-          is_default_admin INTEGER NOT NULL DEFAULT 0,
-          email_verified INTEGER NOT NULL DEFAULT 1,
-          image TEXT
-        );
-      `);
+    db.exec("ALTER TABLE users RENAME TO users_old");
 
-      db.exec(`
-        INSERT INTO users (
-          id, email, name, password_hash, oidc_provider, oidc_subject,
-          created_at, last_login_at, updated_at, is_admin, is_default_admin,
-          email_verified, image
+    db.exec(`
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        password_hash TEXT,
+        oidc_provider TEXT,
+        oidc_subject TEXT,
+        created_at DATE NOT NULL DEFAULT (datetime('now')),
+        last_login_at DATE,
+        updated_at DATE,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        is_default_admin INTEGER NOT NULL DEFAULT 0,
+        email_verified INTEGER NOT NULL DEFAULT 1,
+        image TEXT
+      );
+    `);
+
+    db.exec(`
+      INSERT INTO users (
+        id, email, name, password_hash, oidc_provider, oidc_subject,
+        created_at, last_login_at, updated_at, is_admin, is_default_admin,
+        email_verified, image
+      )
+      SELECT
+        id, email, name, password_hash, oidc_provider, oidc_subject,
+        created_at, last_login_at,
+        COALESCE(updated_at, created_at),
+        is_admin, is_default_admin,
+        COALESCE(email_verified, 1),
+        image
+      FROM users_old;
+    `);
+
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_provider, oidc_subject);
+    `);
+
+    db.exec("DROP TABLE users_old");
+  } catch (error) {
+    console.error("[Migration] Failed to migrate users date fields:", error);
+    // Try to restore the original table if possible
+    try {
+      const hasUsersOld = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='users_old'",
         )
-        SELECT
-          id, email, name, password_hash, oidc_provider, oidc_subject,
-          created_at, last_login_at,
-          COALESCE(updated_at, created_at),
-          is_admin, is_default_admin,
-          COALESCE(email_verified, 1),
-          image
-        FROM users_old;
-      `);
-
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
-        CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_provider, oidc_subject);
-      `);
-
-      db.exec("DROP TABLE users_old");
-    });
-
-    tx();
-  } finally {
-    db.exec("PRAGMA foreign_keys = ON");
+        .get();
+      const hasUsers = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
+        )
+        .get();
+      if (hasUsersOld && !hasUsers) {
+        db.exec("ALTER TABLE users_old RENAME TO users");
+      }
+    } catch (restoreError) {
+      console.error("[Migration] Failed to restore users table:", restoreError);
+    }
+    throw error;
   }
 }
 
@@ -403,7 +420,9 @@ function ensureUserColumns() {
     db.exec("ALTER TABLE users ADD COLUMN updated_at DATE");
   }
   if (!names.has("email_verified")) {
-    db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1");
+    db.exec(
+      "ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1",
+    );
   }
   if (!names.has("image")) {
     db.exec("ALTER TABLE users ADD COLUMN image TEXT");
