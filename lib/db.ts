@@ -264,8 +264,11 @@ function initializeSchema() {
       oidc_subject TEXT,
       created_at DATE NOT NULL DEFAULT (datetime('now')),
       last_login_at DATE,
+      updated_at DATE,
       is_admin INTEGER NOT NULL DEFAULT 0,
-      is_default_admin INTEGER NOT NULL DEFAULT 0
+      is_default_admin INTEGER NOT NULL DEFAULT 0,
+      email_verified INTEGER NOT NULL DEFAULT 1,
+      image TEXT
     );
     
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email 
@@ -311,6 +314,13 @@ function runMigrations() {
     const hasDefaultAdminColumn = tableInfo.some(
       (col: any) => col.name === "is_default_admin",
     );
+    const hasUpdatedAtColumn = tableInfo.some(
+      (col: any) => col.name === "updated_at",
+    );
+    const hasEmailVerifiedColumn = tableInfo.some(
+      (col: any) => col.name === "email_verified",
+    );
+    const hasImageColumn = tableInfo.some((col: any) => col.name === "image");
 
     if (!hasDefaultAdminColumn) {
       console.log("[Migration] Adding is_default_admin column to users table");
@@ -318,6 +328,35 @@ function runMigrations() {
         ALTER TABLE users ADD COLUMN is_default_admin INTEGER NOT NULL DEFAULT 0;
       `);
     }
+
+    if (!hasUpdatedAtColumn) {
+      console.log("[Migration] Adding updated_at column to users table");
+      db.exec(`
+        ALTER TABLE users ADD COLUMN updated_at DATE;
+      `);
+    }
+
+    if (!hasEmailVerifiedColumn) {
+      console.log("[Migration] Adding email_verified column to users table");
+      db.exec(`
+        ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
+
+    if (!hasImageColumn) {
+      console.log("[Migration] Adding image column to users table");
+      db.exec(`
+        ALTER TABLE users ADD COLUMN image TEXT;
+      `);
+    }
+
+    db.exec(`
+      UPDATE users
+      SET
+        updated_at = COALESCE(updated_at, created_at),
+        email_verified = COALESCE(email_verified, 1)
+      WHERE updated_at IS NULL OR email_verified IS NULL;
+    `);
 
     // Migration: Make playback_history user-scoped
     // Check if playback_history has user_id column
