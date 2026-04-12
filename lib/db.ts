@@ -20,6 +20,101 @@ export function getDb(): Database.Database {
   return db;
 }
 
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, "\"\"")}"`;
+}
+
+function replaceCreateTableName(
+  createSql: string,
+  currentName: string,
+  nextName: string,
+): string {
+  const escapedName = currentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `^(CREATE TABLE\\s+(?:IF NOT EXISTS\\s+)?)(["\`\\[]?)${escapedName}(["\`\\]]?)`,
+    "i",
+  );
+  return createSql.replace(pattern, `$1${quoteIdentifier(nextName)}`);
+}
+
+export function repairBrokenUserForeignKeys() {
+  if (!db) return;
+
+  const affectedTables = db
+    .prepare(
+      `SELECT name, sql
+       FROM sqlite_master
+       WHERE type = 'table'
+         AND name NOT LIKE 'sqlite_%'
+         AND sql LIKE '%users_old%'`,
+    )
+    .all() as Array<{ name: string; sql: string | null }>;
+
+  if (!affectedTables.length) return;
+
+  console.log(
+    `[Migration] Repairing broken users_old foreign keys in ${affectedTables.length} tables`,
+  );
+
+  db.exec("PRAGMA foreign_keys = OFF");
+
+  try {
+    const tx = db.transaction(() => {
+      for (const table of affectedTables) {
+        if (!table.sql || table.name === "users" || table.name === "users_old") {
+          continue;
+        }
+
+        const tempTableName = `__repair_${table.name}`;
+        const columns = db!.prepare(
+          `PRAGMA table_info(${quoteIdentifier(table.name)})`,
+        ).all() as Array<{ name: string }>;
+
+        if (!columns.length) continue;
+
+        const dependentObjects = db!
+          .prepare(
+            `SELECT type, sql
+             FROM sqlite_master
+             WHERE tbl_name = ?
+               AND type IN ('index', 'trigger')
+               AND sql IS NOT NULL
+             ORDER BY type, name`,
+          )
+          .all(table.name) as Array<{ type: string; sql: string }>;
+
+        const rebuiltCreateSql = replaceCreateTableName(
+          table.sql,
+          table.name,
+          tempTableName,
+        ).replace(/\busers_old\b/g, "users");
+
+        const columnList = columns
+          .map((column) => quoteIdentifier(column.name))
+          .join(", ");
+
+        db!.exec(rebuiltCreateSql);
+        db!.exec(
+          `INSERT INTO ${quoteIdentifier(tempTableName)} (${columnList})
+           SELECT ${columnList} FROM ${quoteIdentifier(table.name)}`,
+        );
+        db!.exec(`DROP TABLE ${quoteIdentifier(table.name)}`);
+        db!.exec(
+          `ALTER TABLE ${quoteIdentifier(tempTableName)} RENAME TO ${quoteIdentifier(table.name)}`,
+        );
+
+        for (const object of dependentObjects) {
+          db!.exec(object.sql);
+        }
+      }
+    });
+
+    tx();
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
 function initializeSchema() {
   if (!db) return;
 
@@ -200,6 +295,8 @@ function initializeSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  repairBrokenUserForeignKeys();
 
   // Run migrations for existing databases
   runMigrations();

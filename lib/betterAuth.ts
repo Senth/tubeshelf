@@ -8,7 +8,7 @@ import {
   type GenericOAuthConfig,
 } from "better-auth/plugins/generic-oauth";
 import { decodeJwt } from "jose";
-import { getDb } from "@/lib/db";
+import { getDb, repairBrokenUserForeignKeys } from "@/lib/db";
 import { shouldUseSecureCookies } from "@/lib/cookieSecurity";
 import {
   getOIDCProvider,
@@ -550,6 +550,7 @@ function ensureLegacyAccountsBackfilled() {
 
 async function initBetterAuthSchema() {
   ensureUserColumns();
+  repairBrokenUserForeignKeys();
 
   const auth = createAuth();
 
