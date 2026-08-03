@@ -109,6 +109,13 @@ type PlyrPlayer = {
     getAvailableQualityLevels?: () => string[];
     setPlaybackQuality?: (quality: string) => void;
     setPlaybackQualityRange?: (...qualities: string[]) => void;
+    // Undocumented YouTube caption controls. Plyr's own caption pipeline reads
+    // `media.textTracks`, which is always empty for an iframe embed, so these
+    // are the only working handles.
+    getOptions?: (module?: string) => string[];
+    getOption?: (module: string, option: string) => unknown;
+    setOption?: (module: string, option: string, value: unknown) => void;
+    loadModule?: (module: string) => void;
   };
   fullscreen?: {
     enabled: boolean;
@@ -218,6 +225,13 @@ interface VideoPlayerProps {
   onQualityChange?: (quality: string) => void;
   sponsorBlockEnabled?: boolean;
   onSponsorBlockEnabledChange?: (enabled: boolean) => void | Promise<void>;
+  /** This user's default caption state, used when the channel has no override. */
+  captionsDefaultEnabled?: boolean;
+  /** Channel override: true/false pins it, null/undefined follows the default. */
+  channelCaptionsOverride?: boolean | null;
+  onChannelCaptionsOverrideChange?: (
+    value: boolean | null
+  ) => void | Promise<void>;
   debugOverlayEnabled?: boolean;
   onDebugOverlayEnabledChange?: (enabled: boolean) => void | Promise<void>;
   onDefaultResolutionChange?: (
@@ -266,6 +280,9 @@ const VideoPlayerComponent = ({
   onQualityChange,
   sponsorBlockEnabled = true,
   onSponsorBlockEnabledChange,
+  captionsDefaultEnabled = false,
+  channelCaptionsOverride = null,
+  onChannelCaptionsOverrideChange,
   debugOverlayEnabled = false,
   onDebugOverlayEnabledChange,
   onDefaultResolutionChange,
@@ -342,6 +359,14 @@ const VideoPlayerComponent = ({
   } | null>(null);
   const [playerDebugSnapshot, setPlayerDebugSnapshot] =
     useState<PlayerDebugSnapshot | null>(null);
+  const effectiveCaptionsEnabled =
+    typeof channelCaptionsOverride === "boolean"
+      ? channelCaptionsOverride
+      : captionsDefaultEnabled;
+  // Session state for the current video; the persisted values above seed it.
+  const [captionsActive, setCaptionsActive] = useState(effectiveCaptionsEnabled);
+  const captionsActiveRef = useRef(effectiveCaptionsEnabled);
+  const captionsApplyTimerRef = useRef<number | null>(null);
 
   // Extract video ID from YouTube URL
   const getYouTubeVideoId = (url: string) => {
@@ -695,6 +720,72 @@ const VideoPlayerComponent = ({
     } catch {
       // Ignore provider-specific quality API errors.
     }
+  };
+
+  /**
+   * Turn YouTube captions on or off.
+   *
+   * `setOption('captions', 'track', {})` is the only suppression that survives a
+   * seek — plain `unloadModule('captions')` lets them come back, which matters
+   * because SponsorBlock seeks on every skip. `cc_load_policy` does nothing at
+   * all, and Plyr rebuilds the iframe anyway, so URL params are not an option.
+   *
+   * Turning them on needs a concrete track: `loadModule('captions')` on an
+   * already-loaded module just reloads it with nothing selected, which reads as
+   * "still off".
+   *
+   * Returns false while the embed is not ready yet, so callers can retry.
+   */
+  const applyCaptionState = (active: boolean, player?: PlyrPlayer | null) => {
+    const embed = (player || playerRef.current)?.embed;
+    if (!embed) return false;
+    try {
+      if (!active) {
+        embed.setOption?.("captions", "track", {});
+        return true;
+      }
+
+      let modules: string[] | undefined;
+      try {
+        modules = embed.getOptions?.();
+      } catch {
+        modules = undefined;
+      }
+
+      if (!Array.isArray(modules) || !modules.includes("captions")) {
+        // The module only appears once playback has started; retry until then.
+        embed.loadModule?.("captions");
+        return false;
+      }
+
+      const preferredLanguage =
+        (typeof navigator !== "undefined" ? navigator.language || "" : "")
+          .split("-")[0]
+          .toLowerCase() || "en";
+
+      // `tracklist` is often empty even when the module is loaded, so fall back
+      // to naming a language directly — the player resolves it itself.
+      const tracks = embed.getOption?.("captions", "tracklist") as
+        | Array<{ languageCode?: string }>
+        | undefined;
+      const track =
+        (Array.isArray(tracks) && tracks.length > 0
+          ? tracks.find(
+              (candidate) =>
+                (candidate.languageCode || "").toLowerCase().split("-")[0] ===
+                preferredLanguage
+            ) || tracks[0]
+          : null) ?? { languageCode: preferredLanguage };
+
+      embed.setOption?.("captions", "track", track);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const reapplyCaptionState = (player?: PlyrPlayer | null) => {
+    applyCaptionState(captionsActiveRef.current, player);
   };
 
   const getPlayerFullscreenState = () => {
@@ -1593,7 +1684,13 @@ const VideoPlayerComponent = ({
         }
         onMarkWatchedRef.current?.();
         containerRef.current?.focus();
+        reapplyCaptionState(localPlayer);
         updatePlayerDebugSnapshot(localPlayer);
+      });
+
+      localPlayer.on("play", () => {
+        if (!isLocalPlayerLive()) return;
+        reapplyCaptionState(localPlayer);
       });
 
       localPlayer.on("timeupdate", () => {
@@ -1663,6 +1760,8 @@ const VideoPlayerComponent = ({
           }
           sponsorManualSeekGuardRef.current = null;
         }
+        // A seek can revive captions that were switched off.
+        reapplyCaptionState(localPlayer);
         updatePlayerDebugSnapshot(localPlayer, { currentTime: time, duration });
       });
 
@@ -1735,6 +1834,57 @@ const VideoPlayerComponent = ({
       }
     };
   }, [ytVideoId, initialProgress]);
+
+  // Session caption state follows the persisted values whenever the video or
+  // the saved preference changes.
+  useEffect(() => {
+    setCaptionsActive(effectiveCaptionsEnabled);
+  }, [effectiveCaptionsEnabled, ytVideoId]);
+
+  /**
+   * Push the caption state into the embed. The captions module rejects calls
+   * for the first moments after mount, so poll until one lands — that happens
+   * well before playback starts, which is what keeps captions from flashing on
+   * screen when they are meant to be off.
+   */
+  useEffect(() => {
+    captionsActiveRef.current = captionsActive;
+
+    const startedAt = Date.now();
+    let appliedAt: number | null = null;
+
+    const tick = () => {
+      const applied = applyCaptionState(captionsActive);
+      if (applied && appliedAt === null) {
+        appliedAt = Date.now();
+      }
+      const elapsed = Date.now() - startedAt;
+      // Switching captions off needs a few extra nudges, because the player can
+      // re-select a track while it is still loading. Switching them on is done
+      // as soon as it lands — repeating it would restart the caption renderer.
+      const settled =
+        appliedAt !== null &&
+        (captionsActive || Date.now() - appliedAt > 3000);
+      // The captions module can take several seconds of playback to appear.
+      if (settled || elapsed > 25000) {
+        if (captionsApplyTimerRef.current) {
+          window.clearInterval(captionsApplyTimerRef.current);
+          captionsApplyTimerRef.current = null;
+        }
+      }
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 100);
+    captionsApplyTimerRef.current = timer;
+
+    return () => {
+      window.clearInterval(timer);
+      if (captionsApplyTimerRef.current === timer) {
+        captionsApplyTimerRef.current = null;
+      }
+    };
+  }, [captionsActive, ytVideoId, playerReady]);
 
   useEffect(() => {
     if (!playerReady || !playerRef.current) return;
@@ -2124,9 +2274,10 @@ const VideoPlayerComponent = ({
             break;
 
           case "c":
-            // Toggle captions
+            // Toggle captions for this video only; the saved preference is
+            // changed from the player settings menu.
             e.preventDefault();
-            player.toggleCaptions();
+            setCaptionsActive((prev) => !prev);
             break;
         }
       } catch (err) {
@@ -2342,6 +2493,72 @@ const VideoPlayerComponent = ({
                       </div>
 
                       <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm text-white">Captions</div>
+                            <div className="text-[11px] text-gray-400">
+                              This video only
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 rounded-md bg-white/5 p-1">
+                            {([
+                              { label: "On", value: true },
+                              { label: "Off", value: false },
+                            ] as const).map((option) => (
+                              <button
+                                key={option.label}
+                                type="button"
+                                onClick={() => setCaptionsActive(option.value)}
+                                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                                  captionsActive === option.value
+                                    ? "bg-white text-black"
+                                    : "text-gray-300 hover:bg-white/10"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {channelId && (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm text-white">
+                                Always for {displayChannelName}
+                              </div>
+                              <div className="text-[11px] text-gray-400">
+                                Remembered for this channel
+                              </div>
+                            </div>
+                            <div className="flex flex-shrink-0 items-center gap-1 rounded-md bg-white/5 p-1">
+                              {([
+                                { label: "On", value: true },
+                                { label: "Off", value: false },
+                                { label: "Default", value: null },
+                              ] as const).map((option) => (
+                                <button
+                                  key={option.label}
+                                  type="button"
+                                  onClick={() => {
+                                    void onChannelCaptionsOverrideChange?.(
+                                      option.value
+                                    );
+                                  }}
+                                  className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                                    (channelCaptionsOverride ?? null) ===
+                                    option.value
+                                      ? "bg-white text-black"
+                                      : "text-gray-300 hover:bg-white/10"
+                                  }`}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <div className="text-sm text-white">SponsorBlock</div>

@@ -15,6 +15,9 @@ interface SettingsPanelProps {
   /** Per-user retention override; null means "follow the instance default". */
   videoRetentionDays?: number | null;
   onRetentionChange?: (days: number | null) => void;
+  /** Per-user default for closed captions in the built-in player. */
+  captionsEnabled?: boolean;
+  onCaptionsEnabledChange?: (enabled: boolean) => void;
   onSave?: (settings: Partial<AppSettings>) => void;
   onDeleteSubscriptions?: (listId?: string) => Promise<void>;
   onClearWatchHistory?: () => Promise<void>;
@@ -29,6 +32,8 @@ export function SettingsPanel({
   settings,
   videoRetentionDays = null,
   onRetentionChange,
+  captionsEnabled = false,
+  onCaptionsEnabledChange,
   onSave,
   onDeleteSubscriptions,
   onClearWatchHistory,
@@ -423,6 +428,37 @@ export function SettingsPanel({
                     }`}
                   >
                     {mode === "built-in" ? "Built-in" : "New Tab"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Closed Captions */}
+            <div className="bg-card/50 border border-border/30 rounded-xl p-5 space-y-4 backdrop-blur-sm">
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Closed Captions
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Default for the built-in player. Individual channels can
+                  override this from the player settings menu.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {([
+                  { label: "Off", value: false },
+                  { label: "On", value: true },
+                ] as const).map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => onCaptionsEnabledChange?.(option.value)}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      captionsEnabled === option.value
+                        ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                        : "bg-muted/60 hover:bg-muted text-foreground hover:shadow-md"
+                    }`}
+                  >
+                    {option.label}
                   </button>
                 ))}
               </div>

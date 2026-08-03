@@ -8,6 +8,11 @@ export interface UserState {
   filterListId?: string;
   hasCompletedWelcome?: boolean;
   /**
+   * Default closed-caption state for the built-in player. Per-channel
+   * overrides live in `channel_config` (see channelConfigStore).
+   */
+  captionsEnabled?: boolean;
+  /**
    * How long this user wants videos kept, in days. 0 = forever,
    * null = follow the instance default (`videoRetentionDays`).
    */
@@ -79,6 +84,7 @@ export async function readUserState(userId: string): Promise<UserState> {
     hideMemberOnly: config.hideMemberOnly ?? false,
     filterListId: config.filterListId ?? "all",
     hasCompletedWelcome: config.hasCompletedWelcome ?? false,
+    captionsEnabled: config.captionsEnabled ?? false,
     videoRetentionDays:
       typeof config.videoRetentionDays === "number"
         ? config.videoRetentionDays
@@ -118,6 +124,11 @@ export async function writeUserState(state: UserState, userId: string) {
       userId,
       "filterListId",
       JSON.stringify(state.filterListId ?? "all")
+    );
+    configStmt.run(
+      userId,
+      "captionsEnabled",
+      JSON.stringify(!!state.captionsEnabled)
     );
     const hasCompletedValue = !!state.hasCompletedWelcome;
     configStmt.run(

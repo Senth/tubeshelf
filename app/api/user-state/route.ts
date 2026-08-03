@@ -68,6 +68,10 @@ export async function POST(req: Request) {
         ? body.filterListId
         : current.filterListId ?? "all",
     hasCompletedWelcome: nextHasCompletedWelcome,
+    captionsEnabled:
+      typeof body.captionsEnabled === "boolean"
+        ? body.captionsEnabled
+        : !!current.captionsEnabled,
     videoRetentionDays: nextVideoRetentionDays,
     watchLater: Array.isArray(body.watchLater)
       ? body.watchLater
