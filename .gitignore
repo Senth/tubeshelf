@@ -19,3 +19,7 @@ data/
 # build/cache
 *.tsbuildinfo
 npm-debug.log*
+
+# scratch artifacts
+.tmp/
+.playwright-cli/
