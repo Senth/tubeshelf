@@ -23,3 +23,8 @@ npm-debug.log*
 # scratch artifacts
 .tmp/
 .playwright-cli/
+
+# personal Claude Code config
+CLAUDE.local.md
+.claude/CLAUDE.local.md
+.claude/settings.local.json
