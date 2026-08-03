@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { needsSetup } from "@/lib/setup";
+import { readSessionCookie } from "@/lib/sessionCookie";
 
 // Paths that are always public
 const publicPaths = [
@@ -42,7 +43,9 @@ export function proxy(request: NextRequest) {
 
   // For authenticated routes, we'll check the session in the API route itself
   // The middleware just passes the session cookie through
-  const sessionId = request.cookies.get("session")?.value;
+  const sessionId = readSessionCookie(
+    (name) => request.cookies.get(name)?.value
+  );
 
   if (!sessionId && pathname.startsWith("/api/")) {
     return NextResponse.json(
