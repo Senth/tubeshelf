@@ -121,6 +121,12 @@ export default function Home() {
   const [videoRetentionDays, setVideoRetentionDays] = useState<number | null>(
     null
   );
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  // channelId -> pinned caption state. A missing entry follows captionsEnabled.
+  // Loaded up front so the player knows the answer before the iframe mounts.
+  const [channelCaptionOverrides, setChannelCaptionOverrides] = useState<
+    Record<string, boolean>
+  >({});
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [subscriptionLists, setSubscriptionLists] = useState<
@@ -534,6 +540,7 @@ export default function Home() {
             ? data.videoRetentionDays
             : null
         );
+        setCaptionsEnabled(!!data.captionsEnabled);
         if (typeof data.filterListId === "string") {
           setFilterListId(data.filterListId);
         }
@@ -572,6 +579,66 @@ export default function Home() {
       // Revert on error
       setHideMemberOnly(previousValue);
       showToast("Failed to save setting", "error");
+    }
+  };
+
+  const loadChannelCaptionOverrides = async () => {
+    try {
+      const res = await fetch("/api/channel-config", {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && typeof data.captions === "object" && data.captions) {
+        setChannelCaptionOverrides(data.captions as Record<string, boolean>);
+      }
+    } catch (e) {
+      console.error("Failed to load channel caption overrides:", e);
+    }
+  };
+
+  // Default caption state for the built-in player, per user.
+  const handleCaptionsEnabledChange = async (enabled: boolean) => {
+    const previousValue = captionsEnabled;
+
+    setCaptionsEnabled(enabled);
+
+    try {
+      await persistUserState({ captionsEnabled: enabled });
+    } catch (e) {
+      setCaptionsEnabled(previousValue);
+      showToast("Failed to save caption setting", "error");
+    }
+  };
+
+  // Pin captions on/off for one channel; null clears it back to the default.
+  const handleChannelCaptionsOverrideChange = async (
+    channelId: string,
+    value: boolean | null
+  ) => {
+    const previousOverrides = channelCaptionOverrides;
+
+    setChannelCaptionOverrides((prev) => {
+      const next = { ...prev };
+      if (value === null) {
+        delete next[channelId];
+      } else {
+        next[channelId] = value;
+      }
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/channel-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ channelId, captionsEnabled: value }),
+      });
+      if (!res.ok) throw new Error("Failed to save channel caption setting");
+    } catch (e) {
+      setChannelCaptionOverrides(previousOverrides);
+      showToast("Failed to save caption setting for this channel", "error");
     }
   };
 
@@ -769,6 +836,9 @@ export default function Home() {
         // Load full user state for other settings
         await loadUserState();
 
+        // Per-channel caption overrides, needed before a player can mount.
+        await loadChannelCaptionOverrides();
+
         // Load subscription lists
         try {
           const listsRes = await fetch("/api/subscription-lists", {
@@ -877,6 +947,7 @@ export default function Home() {
       watchLater: WatchLaterItem[];
       hasCompletedWelcome: boolean;
       videoRetentionDays: number | null;
+      captionsEnabled: boolean;
     }>
   ) => {
     const runPersist = async () => {
@@ -2171,6 +2242,8 @@ export default function Home() {
                     settings={settings}
                     videoRetentionDays={videoRetentionDays}
                     onRetentionChange={handleRetentionChange}
+                    captionsEnabled={captionsEnabled}
+                    onCaptionsEnabledChange={handleCaptionsEnabledChange}
                     onSave={handleSaveSettings}
                     onDeleteSubscriptions={handleDeleteAllSubscriptions}
                     onClearWatchHistory={handleClearWatchHistory}
@@ -2288,6 +2361,19 @@ export default function Home() {
           quality={playerQuality}
           defaultResolution={settings?.defaultPlayerResolution ?? "1080p"}
           onQualityChange={(q) => setPlayerQuality(q as typeof playerQuality)}
+          captionsDefaultEnabled={captionsEnabled}
+          channelCaptionsOverride={
+            playerVideo.channelId
+              ? channelCaptionOverrides[playerVideo.channelId] ?? null
+              : null
+          }
+          onChannelCaptionsOverrideChange={(value) => {
+            if (!playerVideo.channelId) return;
+            void handleChannelCaptionsOverrideChange(
+              playerVideo.channelId,
+              value
+            );
+          }}
           sponsorBlockEnabled={settings?.sponsorBlockEnabled ?? true}
           onSponsorBlockEnabledChange={(enabled) => {
             setSettings((prev) =>

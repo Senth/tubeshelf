@@ -285,8 +285,25 @@ function initializeSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     
-    CREATE INDEX IF NOT EXISTS idx_user_config_user_id 
+    CREATE INDEX IF NOT EXISTS idx_user_config_user_id
     ON user_config(user_id);
+  `);
+
+  // Per-channel overrides of user settings, key-value like user_config.
+  // Keyed by channel, not by subscription, so it also covers channels the user
+  // watches without subscribing to. A missing row means "follow the user default".
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_config (
+      user_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (user_id, channel_id, key),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_channel_config_user_id
+    ON channel_config(user_id);
   `);
 
   // Users table
