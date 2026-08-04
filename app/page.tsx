@@ -30,6 +30,7 @@ import {
   Users,
   AlertTriangle,
   ArrowUp,
+  ThumbsUp,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { AuthExpiredError, feedManager } from "@/lib/feedManager";
@@ -47,6 +48,7 @@ import { AdminPanel } from "@/components/AdminPanel";
 import { AdminOIDC } from "@/components/admin/AdminOIDC";
 import { AdminUsers } from "@/components/admin/AdminUsers";
 import { AdminSystem } from "@/components/admin/AdminSystem";
+import { AdminYouTube } from "@/components/admin/AdminYouTube";
 import { LoadingProgress } from "@/components/LoadingProgress";
 import { WelcomeWizard, type WelcomeOptions } from "@/components/WelcomeWizard";
 import { ToastContainer } from "@/components/ToastContainer";
@@ -74,6 +76,7 @@ import {
   Subscription,
 } from "@/lib/mockData";
 import type { AppSettings } from "@/lib/settingsStore";
+import { AUTO_LIKE_THRESHOLD_DEFAULT } from "@/lib/settingsSchema";
 import type {
   SubscriptionList,
   SubscriptionListsData,
@@ -125,6 +128,14 @@ export default function Home() {
   // channelId -> pinned caption state. A missing entry follows captionsEnabled.
   // Loaded up front so the player knows the answer before the iframe mounts.
   const [channelCaptionOverrides, setChannelCaptionOverrides] = useState<
+    Record<string, boolean>
+  >({});
+  const [autoLikeEnabled, setAutoLikeEnabled] = useState(false);
+  const [autoLikeThresholdPercent, setAutoLikeThresholdPercent] = useState(
+    AUTO_LIKE_THRESHOLD_DEFAULT
+  );
+  // channelId -> pinned auto-like state, same contract as the caption overrides.
+  const [channelAutoLikeOverrides, setChannelAutoLikeOverrides] = useState<
     Record<string, boolean>
   >({});
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -541,6 +552,12 @@ export default function Home() {
             : null
         );
         setCaptionsEnabled(!!data.captionsEnabled);
+        setAutoLikeEnabled(!!data.autoLikeEnabled);
+        setAutoLikeThresholdPercent(
+          typeof data.autoLikeThresholdPercent === "number"
+            ? data.autoLikeThresholdPercent
+            : AUTO_LIKE_THRESHOLD_DEFAULT
+        );
         if (typeof data.filterListId === "string") {
           setFilterListId(data.filterListId);
         }
@@ -592,6 +609,9 @@ export default function Home() {
       if (data && typeof data.captions === "object" && data.captions) {
         setChannelCaptionOverrides(data.captions as Record<string, boolean>);
       }
+      if (data && typeof data.autoLike === "object" && data.autoLike) {
+        setChannelAutoLikeOverrides(data.autoLike as Record<string, boolean>);
+      }
     } catch (e) {
       console.error("Failed to load channel caption overrides:", e);
     }
@@ -639,6 +659,64 @@ export default function Home() {
     } catch (e) {
       setChannelCaptionOverrides(previousOverrides);
       showToast("Failed to save caption setting for this channel", "error");
+    }
+  };
+
+  // Default auto-like state for the built-in player, per user.
+  const handleAutoLikeEnabledChange = async (enabled: boolean) => {
+    const previousValue = autoLikeEnabled;
+
+    setAutoLikeEnabled(enabled);
+
+    try {
+      await persistUserState({ autoLikeEnabled: enabled });
+    } catch (e) {
+      setAutoLikeEnabled(previousValue);
+      showToast("Failed to save auto-like setting", "error");
+    }
+  };
+
+  const handleAutoLikeThresholdChange = async (percent: number) => {
+    const previousValue = autoLikeThresholdPercent;
+
+    setAutoLikeThresholdPercent(percent);
+
+    try {
+      await persistUserState({ autoLikeThresholdPercent: percent });
+    } catch (e) {
+      setAutoLikeThresholdPercent(previousValue);
+      showToast("Failed to save auto-like threshold", "error");
+    }
+  };
+
+  // Pin auto-like on/off for one channel; null clears it back to the default.
+  const handleChannelAutoLikeOverrideChange = async (
+    channelId: string,
+    value: boolean | null
+  ) => {
+    const previousOverrides = channelAutoLikeOverrides;
+
+    setChannelAutoLikeOverrides((prev) => {
+      const next = { ...prev };
+      if (value === null) {
+        delete next[channelId];
+      } else {
+        next[channelId] = value;
+      }
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/channel-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ channelId, autoLikeEnabled: value }),
+      });
+      if (!res.ok) throw new Error("Failed to save channel auto-like setting");
+    } catch (e) {
+      setChannelAutoLikeOverrides(previousOverrides);
+      showToast("Failed to save auto-like setting for this channel", "error");
     }
   };
 
@@ -706,6 +784,29 @@ export default function Home() {
       setHideMemberOnly(true);
     }
   }, [searchParams]);
+
+  // Report the outcome of the YouTube OAuth round trip, then drop the params so
+  // a refresh does not toast again.
+  useEffect(() => {
+    const outcome = searchParams.get("youtube");
+    if (outcome !== "linked" && outcome !== "error") return;
+
+    const detail = searchParams.get("youtubeMessage");
+    if (outcome === "linked") {
+      showToast(
+        detail ? `YouTube account connected as ${detail}` : "YouTube account connected",
+        "success"
+      );
+    } else {
+      showToast(detail || "Could not connect the YouTube account", "error");
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("youtube");
+    next.delete("youtubeMessage");
+    const query = next.toString();
+    router.replace(query ? `/?${query}` : "/");
+  }, [searchParams, router]);
 
   // Update URL when state changes
   useEffect(() => {
@@ -948,6 +1049,8 @@ export default function Home() {
       hasCompletedWelcome: boolean;
       videoRetentionDays: number | null;
       captionsEnabled: boolean;
+      autoLikeEnabled: boolean;
+      autoLikeThresholdPercent: number;
     }>
   ) => {
     const runPersist = async () => {
@@ -2221,6 +2324,13 @@ export default function Home() {
                         description: "System configuration",
                         category: "admin" as const,
                       },
+                      {
+                        id: "admin-youtube",
+                        label: "YouTube Integration",
+                        icon: <ThumbsUp className="w-4 h-4" />,
+                        description: "OAuth client for liking videos",
+                        category: "admin" as const,
+                      },
                     ]
                   : []),
                 {
@@ -2244,6 +2354,11 @@ export default function Home() {
                     onRetentionChange={handleRetentionChange}
                     captionsEnabled={captionsEnabled}
                     onCaptionsEnabledChange={handleCaptionsEnabledChange}
+                    autoLikeEnabled={autoLikeEnabled}
+                    onAutoLikeEnabledChange={handleAutoLikeEnabledChange}
+                    autoLikeThresholdPercent={autoLikeThresholdPercent}
+                    onAutoLikeThresholdChange={handleAutoLikeThresholdChange}
+                    onShowToast={showToast}
                     onSave={handleSaveSettings}
                     onDeleteSubscriptions={handleDeleteAllSubscriptions}
                     onClearWatchHistory={handleClearWatchHistory}
@@ -2265,6 +2380,10 @@ export default function Home() {
 
               {currentDashboardSection === "admin-system" && user?.isAdmin && (
                 <AdminSystem />
+              )}
+
+              {currentDashboardSection === "admin-youtube" && user?.isAdmin && (
+                <AdminYouTube />
               )}
 
               {currentDashboardSection === "danger-zone" && (
@@ -2374,6 +2493,21 @@ export default function Home() {
               value
             );
           }}
+          autoLikeDefaultEnabled={autoLikeEnabled}
+          channelAutoLikeOverride={
+            playerVideo.channelId
+              ? channelAutoLikeOverrides[playerVideo.channelId] ?? null
+              : null
+          }
+          onChannelAutoLikeOverrideChange={(value) => {
+            if (!playerVideo.channelId) return;
+            void handleChannelAutoLikeOverrideChange(
+              playerVideo.channelId,
+              value
+            );
+          }}
+          autoLikeThresholdPercent={autoLikeThresholdPercent}
+          onShowToast={showToast}
           sponsorBlockEnabled={settings?.sponsorBlockEnabled ?? true}
           onSponsorBlockEnabledChange={(enabled) => {
             setSettings((prev) =>

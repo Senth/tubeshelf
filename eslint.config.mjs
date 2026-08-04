@@ -1,6 +1,6 @@
 import coreWebVitals from "eslint-config-next/core-web-vitals";
 
-export default [
+const config = [
   {
     ignores: [".next/**", "node_modules/**", "data/**", "public/**"],
   },
@@ -10,3 +10,5 @@ export default [
     settings: { react: { version: "19.2" } },
   },
 ];
+
+export default config;

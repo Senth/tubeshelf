@@ -5,10 +5,12 @@ import { AlertTriangle, HelpCircle, Palette, Zap } from "lucide-react";
 import { Button } from "./ui/button";
 import { ThemeContext } from "./ThemeProvider";
 import {
+  AUTO_LIKE_THRESHOLD_DEFAULT,
   RETENTION_OPTIONS,
   formatRetention,
   type AppSettings,
 } from "@/lib/settingsSchema";
+import { YouTubeAccountPanel } from "./YouTubeAccountPanel";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -18,6 +20,12 @@ interface SettingsPanelProps {
   /** Per-user default for closed captions in the built-in player. */
   captionsEnabled?: boolean;
   onCaptionsEnabledChange?: (enabled: boolean) => void;
+  /** Per-user default for auto-liking watched videos. */
+  autoLikeEnabled?: boolean;
+  onAutoLikeEnabledChange?: (enabled: boolean) => void;
+  autoLikeThresholdPercent?: number;
+  onAutoLikeThresholdChange?: (percent: number) => void;
+  onShowToast?: (message: string, type: "success" | "error" | "info") => void;
   onSave?: (settings: Partial<AppSettings>) => void;
   onDeleteSubscriptions?: (listId?: string) => Promise<void>;
   onClearWatchHistory?: () => Promise<void>;
@@ -34,6 +42,11 @@ export function SettingsPanel({
   onRetentionChange,
   captionsEnabled = false,
   onCaptionsEnabledChange,
+  autoLikeEnabled = false,
+  onAutoLikeEnabledChange,
+  autoLikeThresholdPercent = AUTO_LIKE_THRESHOLD_DEFAULT,
+  onAutoLikeThresholdChange,
+  onShowToast,
   onSave,
   onDeleteSubscriptions,
   onClearWatchHistory,
@@ -463,6 +476,16 @@ export function SettingsPanel({
                 ))}
               </div>
             </div>
+
+            {/* YouTube account + auto-like. Hides itself when the instance has
+                no OAuth client configured. */}
+            <YouTubeAccountPanel
+              autoLikeEnabled={autoLikeEnabled}
+              onAutoLikeEnabledChange={onAutoLikeEnabledChange}
+              autoLikeThresholdPercent={autoLikeThresholdPercent}
+              onAutoLikeThresholdChange={onAutoLikeThresholdChange}
+              onShowToast={onShowToast}
+            />
 
           </div>
         </>

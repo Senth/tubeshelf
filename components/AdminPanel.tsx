@@ -8,6 +8,7 @@ import {
   Settings,
   Loader2,
   ChevronRight,
+  ThumbsUp,
 } from "lucide-react";
 import ClientOnly from "./ClientOnly";
 
@@ -15,6 +16,7 @@ interface AdminPanelProps {
   onNavigateToOIDC?: () => void;
   onNavigateToUsers?: () => void;
   onNavigateToSystem?: () => void;
+  onNavigateToYouTube?: () => void;
   compact?: boolean;
 }
 
@@ -22,12 +24,14 @@ export function AdminPanel({
   onNavigateToOIDC,
   onNavigateToUsers,
   onNavigateToSystem,
+  onNavigateToYouTube,
   compact = false,
 }: AdminPanelProps) {
   const [stats, setStats] = useState({
     totalUsers: 0,
     adminUsers: 0,
     oidcConfigured: false,
+    youtubeConfigured: false,
   });
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState<string>("...");
@@ -39,20 +43,23 @@ export function AdminPanel({
 
   const loadStats = async () => {
     try {
-      const [usersRes, oidcRes] = await Promise.all([
+      const [usersRes, oidcRes, youtubeRes] = await Promise.all([
         fetch("/api/admin/users"),
         fetch("/api/admin/oidc-providers"),
+        fetch("/api/admin/youtube"),
       ]);
 
-      const [usersData, oidcData] = await Promise.all([
+      const [usersData, oidcData, youtubeData] = await Promise.all([
         usersRes.json(),
         oidcRes.json(),
+        youtubeRes.json(),
       ]);
 
       setStats({
         totalUsers: usersData.users?.length || 0,
         adminUsers: usersData.users?.filter((u: any) => u.isAdmin).length || 0,
         oidcConfigured: !!(oidcData.providers && oidcData.providers.length > 0),
+        youtubeConfigured: !!youtubeData?.configured,
       });
     } catch (error) {
       console.error("Failed to load admin stats:", error);
@@ -98,6 +105,16 @@ export function AdminPanel({
       onClick: onNavigateToSystem,
       stat: "Configure system",
       color: "text-purple-600 dark:text-purple-400",
+    },
+    {
+      title: "YouTube Integration",
+      description: "OAuth client for liking videos",
+      icon: ThumbsUp,
+      onClick: onNavigateToYouTube,
+      stat: stats.youtubeConfigured ? "Configured" : "Not configured",
+      color: stats.youtubeConfigured
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-amber-600 dark:text-amber-400",
     },
   ];
 

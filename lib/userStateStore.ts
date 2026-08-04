@@ -1,5 +1,9 @@
 import { getDb } from "./db";
 import { migrateFromJson } from "./migrate";
+import {
+  AUTO_LIKE_THRESHOLD_DEFAULT,
+  clampAutoLikeThreshold,
+} from "./settingsSchema";
 
 export interface UserState {
   watchedVideos: string[];
@@ -12,6 +16,13 @@ export interface UserState {
    * overrides live in `channel_config` (see channelConfigStore).
    */
   captionsEnabled?: boolean;
+  /**
+   * Default for auto-liking a video once it has been watched past the
+   * threshold. Per-channel overrides live in `channel_config`.
+   */
+  autoLikeEnabled?: boolean;
+  /** Share of the video that must be watched before auto-like fires. */
+  autoLikeThresholdPercent?: number;
   /**
    * How long this user wants videos kept, in days. 0 = forever,
    * null = follow the instance default (`videoRetentionDays`).
@@ -85,6 +96,11 @@ export async function readUserState(userId: string): Promise<UserState> {
     filterListId: config.filterListId ?? "all",
     hasCompletedWelcome: config.hasCompletedWelcome ?? false,
     captionsEnabled: config.captionsEnabled ?? false,
+    autoLikeEnabled: config.autoLikeEnabled ?? false,
+    autoLikeThresholdPercent:
+      typeof config.autoLikeThresholdPercent === "number"
+        ? clampAutoLikeThreshold(config.autoLikeThresholdPercent)
+        : AUTO_LIKE_THRESHOLD_DEFAULT,
     videoRetentionDays:
       typeof config.videoRetentionDays === "number"
         ? config.videoRetentionDays
@@ -129,6 +145,16 @@ export async function writeUserState(state: UserState, userId: string) {
       userId,
       "captionsEnabled",
       JSON.stringify(!!state.captionsEnabled)
+    );
+    configStmt.run(
+      userId,
+      "autoLikeEnabled",
+      JSON.stringify(!!state.autoLikeEnabled)
+    );
+    configStmt.run(
+      userId,
+      "autoLikeThresholdPercent",
+      JSON.stringify(clampAutoLikeThreshold(state.autoLikeThresholdPercent))
     );
     const hasCompletedValue = !!state.hasCompletedWelcome;
     configStmt.run(

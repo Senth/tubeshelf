@@ -9,6 +9,7 @@ export type Page =
   | "admin-oidc"
   | "admin-users"
   | "admin-system"
+  | "admin-youtube"
   | "settings"
   | "watch-history"
   | "about"

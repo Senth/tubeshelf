@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export default {
+const tailwindConfig = {
   content: [
     path.join(__dirname, '../app/**/*.{js,ts,jsx,tsx}'),
     path.join(__dirname, '../components/**/*.{js,ts,jsx,tsx}'),
@@ -70,3 +70,5 @@ export default {
   },
   plugins: [],
 };
+
+export default tailwindConfig;

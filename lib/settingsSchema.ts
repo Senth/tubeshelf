@@ -80,6 +80,31 @@ export function clampNumericSetting(
   return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
+/**
+ * Auto-like threshold bounds, as a share of the video watched. Lives here
+ * rather than in userStateStore so client components can use it without
+ * pulling better-sqlite3 into the browser bundle.
+ */
+export const AUTO_LIKE_THRESHOLD_DEFAULT = 80;
+export const AUTO_LIKE_THRESHOLD_MIN = 25;
+export const AUTO_LIKE_THRESHOLD_MAX = 100;
+
+export function clampAutoLikeThreshold(value: unknown): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+      ? Number.parseInt(value, 10)
+      : NaN;
+
+  if (!Number.isFinite(parsed)) return AUTO_LIKE_THRESHOLD_DEFAULT;
+
+  return Math.min(
+    AUTO_LIKE_THRESHOLD_MAX,
+    Math.max(AUTO_LIKE_THRESHOLD_MIN, Math.round(parsed))
+  );
+}
+
 /** Retention windows offered in the UI. 0 = forever. */
 export const RETENTION_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 30, label: "1 month" },

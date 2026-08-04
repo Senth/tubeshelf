@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readUserState, writeUserState, UserState } from "@/lib/userStateStore";
 import { getCurrentUser } from "@/lib/currentUser";
 import { clampNumericSetting } from "@/lib/settingsStore";
+import { clampAutoLikeThreshold } from "@/lib/settingsSchema";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -72,6 +73,13 @@ export async function POST(req: Request) {
       typeof body.captionsEnabled === "boolean"
         ? body.captionsEnabled
         : !!current.captionsEnabled,
+    autoLikeEnabled:
+      typeof body.autoLikeEnabled === "boolean"
+        ? body.autoLikeEnabled
+        : !!current.autoLikeEnabled,
+    autoLikeThresholdPercent: clampAutoLikeThreshold(
+      body.autoLikeThresholdPercent ?? current.autoLikeThresholdPercent
+    ),
     videoRetentionDays: nextVideoRetentionDays,
     watchLater: Array.isArray(body.watchLater)
       ? body.watchLater

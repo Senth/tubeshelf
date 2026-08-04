@@ -306,6 +306,39 @@ function initializeSchema() {
     ON channel_config(user_id);
   `);
 
+  // Google account a user linked so TubeShelf can like videos on their behalf.
+  // One row per user; `refresh_token` is encrypted (see lib/secretCrypto.ts).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS youtube_accounts (
+      user_id TEXT PRIMARY KEY,
+      account_label TEXT,
+      access_token TEXT,
+      access_token_expires_at INTEGER,
+      refresh_token TEXT NOT NULL,
+      scope TEXT,
+      linked_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Cached like state per video, so the player can render the button without
+  // spending quota on every open, and so auto-like fires at most once.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS youtube_ratings (
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      rating TEXT NOT NULL,
+      auto_liked INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, video_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_youtube_ratings_user_id
+    ON youtube_ratings(user_id);
+  `);
+
   // Users table
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
