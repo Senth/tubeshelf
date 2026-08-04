@@ -34,9 +34,7 @@ type BetterAuthSession = Awaited<
 >;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __tubeshelfBetterAuthReadyPromise: Promise<void> | undefined;
-  // eslint-disable-next-line no-var
   var __tubeshelfAuthSecretWarningLogged: boolean | undefined;
 }
 

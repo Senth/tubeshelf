@@ -26,4 +26,6 @@ export function debug(...args: any[]) {
   if (currentLevel() >= LEVELS.debug) console.log(...args);
 }
 
-export default { error, warn, info, debug };
+const logger = { error, warn, info, debug };
+
+export default logger;

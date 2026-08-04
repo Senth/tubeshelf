@@ -69,7 +69,14 @@ type PlayerActionHud =
   | {
       kind: "speed";
       rate: number;
+    }
+  | {
+      kind: "like";
+      liked: boolean;
+      auto: boolean;
     };
+
+type VideoRating = "like" | "dislike" | "none";
 
 type PlayerDebugSnapshot = {
   quality: string | null;
@@ -232,6 +239,16 @@ interface VideoPlayerProps {
   onChannelCaptionsOverrideChange?: (
     value: boolean | null
   ) => void | Promise<void>;
+  /** This user's auto-like default, used when the channel has no override. */
+  autoLikeDefaultEnabled?: boolean;
+  /** Channel override: true/false pins it, null/undefined follows the default. */
+  channelAutoLikeOverride?: boolean | null;
+  onChannelAutoLikeOverrideChange?: (
+    value: boolean | null
+  ) => void | Promise<void>;
+  /** Share of the video that must be reached before auto-like fires. */
+  autoLikeThresholdPercent?: number;
+  onShowToast?: (message: string, type: "success" | "error" | "info") => void;
   debugOverlayEnabled?: boolean;
   onDebugOverlayEnabledChange?: (enabled: boolean) => void | Promise<void>;
   onDefaultResolutionChange?: (
@@ -283,6 +300,11 @@ const VideoPlayerComponent = ({
   captionsDefaultEnabled = false,
   channelCaptionsOverride = null,
   onChannelCaptionsOverrideChange,
+  autoLikeDefaultEnabled = false,
+  channelAutoLikeOverride = null,
+  onChannelAutoLikeOverrideChange,
+  autoLikeThresholdPercent = 80,
+  onShowToast,
   debugOverlayEnabled = false,
   onDebugOverlayEnabledChange,
   onDefaultResolutionChange,
@@ -363,6 +385,22 @@ const VideoPlayerComponent = ({
     typeof channelCaptionsOverride === "boolean"
       ? channelCaptionsOverride
       : captionsDefaultEnabled;
+  const effectiveAutoLikeEnabled =
+    typeof channelAutoLikeOverride === "boolean"
+      ? channelAutoLikeOverride
+      : autoLikeDefaultEnabled;
+  // `available` stays false until the API confirms a connected Google account,
+  // so the button never appears on instances without the integration.
+  const [likeAvailable, setLikeAvailable] = useState(false);
+  const [likeRating, setLikeRating] = useState<VideoRating>("none");
+  const [likePending, setLikePending] = useState(false);
+  const likeAvailableRef = useRef(false);
+  const likeRatingRef = useRef<VideoRating>("none");
+  const likePendingRef = useRef(false);
+  const autoLikeFiredRef = useRef(false);
+  const autoLikeEnabledRef = useRef(effectiveAutoLikeEnabled);
+  const autoLikeThresholdRef = useRef(autoLikeThresholdPercent);
+  const onShowToastRef = useRef(onShowToast);
   // Session state for the current video; the persisted values above seed it.
   const [captionsActive, setCaptionsActive] = useState(effectiveCaptionsEnabled);
   const captionsActiveRef = useRef(effectiveCaptionsEnabled);
@@ -420,6 +458,30 @@ const VideoPlayerComponent = ({
     if (!playerReadyRef.current) return false;
     return hasAttachedPlayerIframe();
   };
+
+  useEffect(() => {
+    autoLikeEnabledRef.current = effectiveAutoLikeEnabled;
+  }, [effectiveAutoLikeEnabled]);
+
+  useEffect(() => {
+    autoLikeThresholdRef.current = autoLikeThresholdPercent;
+  }, [autoLikeThresholdPercent]);
+
+  useEffect(() => {
+    onShowToastRef.current = onShowToast;
+  }, [onShowToast]);
+
+  useEffect(() => {
+    likeAvailableRef.current = likeAvailable;
+  }, [likeAvailable]);
+
+  useEffect(() => {
+    likeRatingRef.current = likeRating;
+  }, [likeRating]);
+
+  useEffect(() => {
+    likePendingRef.current = likePending;
+  }, [likePending]);
 
   useEffect(() => {
     sponsorSkipNoticeRef.current = sponsorSkipNotice;
@@ -1002,6 +1064,11 @@ const VideoPlayerComponent = ({
         if (hud.kind === "speed" && current.kind === "speed") {
           return Math.abs(current.rate - hud.rate) < 0.001 ? null : current;
         }
+        if (hud.kind === "like" && current.kind === "like") {
+          return current.liked === hud.liked && current.auto === hud.auto
+            ? null
+            : current;
+        }
         return current;
       });
       playerActionHudTimerRef.current = null;
@@ -1351,6 +1418,130 @@ const VideoPlayerComponent = ({
     commentsRequestIdRef.current += 1;
     replyRequestIdRef.current = {};
   }, [ytVideoId]);
+
+  // Current like state for this video. `available: false` means the instance has
+  // no OAuth client or this user has not connected an account.
+  useEffect(() => {
+    let cancelled = false;
+
+    setLikeRating("none");
+    setLikePending(false);
+    autoLikeFiredRef.current = false;
+
+    const loadRating = async () => {
+      try {
+        const res = await fetch(
+          `/api/youtube/rate?videoId=${encodeURIComponent(ytVideoId)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          if (!cancelled) setLikeAvailable(false);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setLikeAvailable(!!data.available);
+        setLikeRating(
+          data.rating === "like" || data.rating === "dislike"
+            ? data.rating
+            : "none"
+        );
+        // The server owns the at-most-once guard, but mirroring it here avoids
+        // a pointless request on every rewatch.
+        autoLikeFiredRef.current = !!data.autoLiked;
+      } catch {
+        if (!cancelled) setLikeAvailable(false);
+      }
+    };
+
+    void loadRating();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ytVideoId]);
+
+  const sendRating = async (
+    rating: VideoRating,
+    options?: { auto?: boolean }
+  ) => {
+    const auto = !!options?.auto;
+    const previousRating = likeRatingRef.current;
+
+    // Optimistic: the button flips immediately and reverts if YouTube says no.
+    setLikeRating(rating);
+    setLikePending(true);
+
+    try {
+      const res = await fetch("/api/youtube/rate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ videoId: ytVideoId, rating, auto }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Could not update the like on YouTube");
+      }
+
+      const confirmed: VideoRating =
+        data?.rating === "like" || data?.rating === "dislike"
+          ? data.rating
+          : "none";
+      setLikeRating(confirmed);
+
+      // Nothing changed server-side (already rated, or already auto-liked), so
+      // announcing it would be noise.
+      if (!data?.skipped) {
+        showPlayerActionHud(
+          { kind: "like", liked: confirmed === "like", auto },
+          auto ? 2600 : 1200
+        );
+      }
+    } catch (err) {
+      setLikeRating(previousRating);
+      const message =
+        err instanceof Error ? err.message : "Could not update the like";
+      // A dead Google link should hide the button rather than keep failing.
+      if (/connect your youtube account again|no youtube oauth client/i.test(message)) {
+        setLikeAvailable(false);
+      }
+      onShowToastRef.current?.(message, "error");
+    } finally {
+      setLikePending(false);
+    }
+  };
+
+  const toggleLike = () => {
+    if (!likeAvailable || likePending) return;
+    void sendRating(likeRating === "like" ? "none" : "like");
+  };
+
+  /**
+   * Auto-like once the playback position passes the threshold.
+   *
+   * Deliberately a position test rather than a "time actually watched" one, so
+   * skipping a sponsor segment or playing at 2x still counts — landing past the
+   * mark by any route is enough.
+   */
+  const maybeAutoLike = (time: number, duration: number) => {
+    if (!autoLikeEnabledRef.current) return;
+    if (!likeAvailableRef.current) return;
+    if (autoLikeFiredRef.current) return;
+    if (likePendingRef.current) return;
+    // Never override a rating the user already made by hand.
+    if (likeRatingRef.current !== "none") return;
+    if (!Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+
+    const percent = (time / duration) * 100;
+    if (percent < autoLikeThresholdRef.current) return;
+
+    autoLikeFiredRef.current = true;
+    void sendRating("like", { auto: true });
+  };
 
   const loadCommentsPage = async (options?: {
     append?: boolean;
@@ -1719,7 +1910,16 @@ const VideoPlayerComponent = ({
         if (Number.isFinite(duration) && duration > 0) {
           setPlayerDuration(Math.floor(duration));
         }
+        maybeAutoLike(time, duration);
         updatePlayerDebugSnapshot(localPlayer, { currentTime: time, duration });
+      });
+
+      // Closing the tab right at the end can beat the last timeupdate, and a
+      // video shorter than the threshold gap never reports a position past it.
+      localPlayer.on("ended", () => {
+        if (!isLocalPlayerLive()) return;
+        const duration = Number(localPlayer?.duration || 0);
+        maybeAutoLike(duration, duration);
       });
 
       localPlayer.on("seeking", () => {
@@ -2167,10 +2367,14 @@ const VideoPlayerComponent = ({
             break;
 
           case "l":
-            // Seek forward 10s
             e.preventDefault();
-            seekBy(10);
-            showSeekActionHud(10);
+            if (e.shiftKey) {
+              // Shift+L likes; plain L stays the YouTube-standard 10s seek.
+              toggleLike();
+            } else {
+              seekBy(10);
+              showSeekActionHud(10);
+            }
             break;
 
           case "arrowup":
@@ -2559,6 +2763,48 @@ const VideoPlayerComponent = ({
                           </div>
                         )}
 
+                        {likeAvailable && channelId && (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm text-white">
+                                Auto-like {displayChannelName}
+                              </div>
+                              <div className="text-[11px] text-gray-400">
+                                {`Default: ${
+                                  autoLikeDefaultEnabled ? "on" : "off"
+                                } · at ${autoLikeThresholdPercent}% watched`}
+                              </div>
+                            </div>
+                            <div className="flex flex-shrink-0 items-center gap-1 rounded-md bg-white/5 p-1">
+                              {(
+                                [
+                                  { label: "On", value: true },
+                                  { label: "Off", value: false },
+                                  { label: "Default", value: null },
+                                ] as const
+                              ).map((option) => (
+                                <button
+                                  key={option.label}
+                                  type="button"
+                                  onClick={() => {
+                                    void onChannelAutoLikeOverrideChange?.(
+                                      option.value
+                                    );
+                                  }}
+                                  className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                                    (channelAutoLikeOverride ?? null) ===
+                                    option.value
+                                      ? "bg-white text-black"
+                                      : "text-gray-300 hover:bg-white/10"
+                                  }`}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <div className="text-sm text-white">SponsorBlock</div>
@@ -2803,6 +3049,16 @@ const VideoPlayerComponent = ({
                                 Enter
                               </kbd>
                             </div>
+                            {likeAvailable && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-300">
+                                  Like on YouTube
+                                </span>
+                                <kbd className="px-2 py-1 bg-white/10 rounded text-white font-mono text-xs">
+                                  Shift + L
+                                </kbd>
+                              </div>
+                            )}
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-gray-300">
                                 Close player
@@ -2818,6 +3074,36 @@ const VideoPlayerComponent = ({
                   </div>
                 )}
               </div>
+
+              {likeAvailable && (
+                <button
+                  onClick={toggleLike}
+                  disabled={likePending}
+                  aria-pressed={likeRating === "like"}
+                  className={`inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors disabled:opacity-60 ${
+                    likeRating === "like"
+                      ? "bg-red-600 hover:bg-red-500 text-white"
+                      : "bg-white/10 hover:bg-white/20 text-white"
+                  }`}
+                  title={
+                    likeRating === "like"
+                      ? "Remove like on YouTube (Shift+L)"
+                      : "Like on YouTube (Shift+L)"
+                  }
+                  aria-label={
+                    likeRating === "like" ? "Remove like" : "Like this video"
+                  }
+                >
+                  {likePending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <ThumbsUp
+                      className="w-5 h-5"
+                      fill={likeRating === "like" ? "currentColor" : "none"}
+                    />
+                  )}
+                </button>
+              )}
 
               <a
                 href={youtubeUrlWithTimestamp}
@@ -2891,6 +3177,28 @@ const VideoPlayerComponent = ({
                           {playerActionHud.direction === "forward"
                             ? "Forward"
                             : "Back"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : playerActionHud.kind === "like" ? (
+                    <div className="absolute left-1/2 bottom-20 -translate-x-1/2">
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-xl backdrop-blur-sm">
+                        <span
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${
+                            playerActionHud.liked ? "bg-red-600" : "bg-white/5"
+                          }`}
+                        >
+                          <ThumbsUp
+                            className="w-4 h-4"
+                            fill={playerActionHud.liked ? "currentColor" : "none"}
+                          />
+                        </span>
+                        <div className="text-sm font-medium">
+                          {playerActionHud.liked
+                            ? playerActionHud.auto
+                              ? "Auto-liked on YouTube"
+                              : "Liked on YouTube"
+                            : "Like removed"}
                         </div>
                       </div>
                     </div>

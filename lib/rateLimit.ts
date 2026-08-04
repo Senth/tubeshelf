@@ -19,9 +19,7 @@ type RateLimitOptions = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var __tubeshelfRateLimitStore: Map<string, RateLimitEntry> | undefined;
-  // eslint-disable-next-line no-var
   var __tubeshelfRateLimitLastSweepAtMs: number | undefined;
 }
 
