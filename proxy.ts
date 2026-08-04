@@ -7,6 +7,12 @@ import { readSessionCookie } from "@/lib/sessionCookie";
 const publicPaths = [
   "/setup",
   "/login",
+  // Google's OAuth verification review loads these directly, signed out and
+  // before setup has run, so they must never redirect. "/welcome" is also what
+  // "/" is rewritten to below.
+  "/welcome",
+  "/privacy-policy",
+  "/terms-of-service",
   "/api/setup",
   "/api/auth/login",
   "/api/auth/register",
@@ -52,6 +58,15 @@ export function proxy(request: NextRequest) {
       { error: "Authentication required" },
       { status: 401 }
     );
+  }
+
+  // Signed-out visitors get the landing page at "/" itself, rewritten rather
+  // than redirected: Google's OAuth verification requires the homepage URL to be
+  // publicly reachable, non-redirecting, and to explain the app and its use of
+  // Google account data without anyone signing in. Sending them straight to the
+  // sign-in form fails that review.
+  if (!sessionId && pathname === "/") {
+    return NextResponse.rewrite(new URL("/welcome", request.url));
   }
 
   // For page routes without session, redirect to login

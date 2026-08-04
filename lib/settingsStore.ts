@@ -3,6 +3,7 @@ import { migrateFromJson } from "./migrate";
 import {
   clampNumericSetting,
   defaultSettings,
+  normalizeLegalContactEmail,
   numericSettingLimits,
   type AppSettings,
   type NumericSettingKey,
@@ -12,6 +13,7 @@ export {
   clampNumericSetting,
   defaultSettings,
   numericSettingLimits,
+  normalizeLegalContactEmail,
   RETENTION_OPTIONS,
   formatRetention,
 } from "./settingsSchema";
@@ -52,6 +54,14 @@ export async function readSettings(): Promise<AppSettings> {
         continue;
       }
 
+      if (row.key === "legalContactEmail") {
+        const email = normalizeLegalContactEmail(value);
+        if (email !== null) {
+          settings.legalContactEmail = email;
+        }
+        continue;
+      }
+
       (settings as any)[row.key] = value;
     } catch {
       // Skip invalid JSON
@@ -81,6 +91,7 @@ export async function writeSettings(
     "fetchMethod",
     "oidcOnly",
     "publicRegistration",
+    "legalContactEmail",
     "videoRetentionDays",
     "feedConcurrency",
     "feedChannelTimeoutSeconds",

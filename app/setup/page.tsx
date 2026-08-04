@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { LegalFooter } from "@/components/LegalFooter";
 
 export default function Setup() {
   const [name, setName] = useState("");
@@ -173,6 +174,8 @@ export default function Setup() {
             </p>
           </div>
         </div>
+
+        <LegalFooter />
       </div>
     </div>
   );

@@ -66,6 +66,8 @@ export function AdminSystem() {
   const { user, loading } = useAuth();
   const [oidcOnly, setOidcOnly] = useState(false);
   const [publicRegistration, setPublicRegistration] = useState(false);
+  const [legalContactEmail, setLegalContactEmail] = useState("");
+  const [savingLegalContact, setSavingLegalContact] = useState(false);
   const [feedSettings, setFeedSettings] =
     useState<FeedSettings>(defaultFeedSettings);
   const [savingFeedSettings, setSavingFeedSettings] = useState(false);
@@ -163,6 +165,7 @@ export function AdminSystem() {
 
       setOidcOnly(settingsData.oidcOnly || false);
       setPublicRegistration(settingsData.publicRegistration || false);
+      setLegalContactEmail(settingsData.legalContactEmail || "");
       setFeedSettings({
         videoRetentionDays:
           settingsData.videoRetentionDays ??
@@ -229,6 +232,37 @@ export function AdminSystem() {
     }
   };
 
+  const saveLegalContact = async () => {
+    setSavingLegalContact(true);
+    try {
+      setMessage(null);
+      const response = await fetch("/api/admin/system-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legalContactEmail }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage({
+          type: "error",
+          message: data.error || "Failed to save contact email",
+        });
+        return;
+      }
+
+      setMessage({ type: "success", message: "Contact email saved" });
+      setTimeout(() => setMessage(null), 2000);
+      await loadSettings();
+    } catch (error) {
+      console.error("Failed to save contact email:", error);
+      setMessage({ type: "error", message: "An error occurred while saving" });
+    } finally {
+      setSavingLegalContact(false);
+    }
+  };
+
   const handleToggle = (checked: boolean) => {
     if (checked && !hasOIDCProvider) {
       setMessage({
@@ -261,6 +295,27 @@ export function AdminSystem() {
       <p className="text-sm text-muted-foreground mb-6">
         Configure system-wide security and authentication settings
       </p>
+
+      {/* Save feedback for every card below, so it is visible wherever the
+          admin is on the page */}
+      {message && (
+        <div
+          className={`sticky top-4 z-10 rounded-lg p-4 border ${
+            message.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+              : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {message.type === "success" ? (
+              <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            ) : (
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            )}
+            <p className="text-sm font-medium">{message.message}</p>
+          </div>
+        </div>
+      )}
 
       {/* Settings Card */}
       <div className="bg-card border border-border rounded-lg p-6">
@@ -376,25 +431,63 @@ export function AdminSystem() {
           </div>
         </div>
 
-        {/* Message */}
-        {message && (
-          <div
-            className={`rounded-lg p-4 mb-6 border ${
-              message.type === "success"
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
-                : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
-            }`}
+      </div>
+
+      {/* Legal pages */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h2 className="text-xl font-semibold mb-2">Legal Pages</h2>
+        <p className="text-sm text-muted-foreground mb-6">
+          The public{" "}
+          <a
+            href="/privacy-policy"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline underline-offset-2"
           >
-            <div className="flex items-center gap-2">
-              {message.type === "success" ? (
-                <CheckCircle className="w-5 h-5 flex-shrink-0" />
-              ) : (
-                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              )}
-              <p className="text-sm font-medium">{message.message}</p>
-            </div>
+            privacy policy
+          </a>{" "}
+          and{" "}
+          <a
+            href="/terms-of-service"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline underline-offset-2"
+          >
+            terms of service
+          </a>{" "}
+          are linked from the sign-in page. Google&apos;s OAuth verification
+          expects both to name a way to reach whoever runs this instance.
+        </p>
+
+        <div>
+          <label
+            htmlFor="legalContactEmail"
+            className="block text-sm font-medium mb-1"
+          >
+            Contact email
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Published on both pages. Leave empty to omit it — the pages then
+            tell readers to contact the administrator instead.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              id="legalContactEmail"
+              type="email"
+              value={legalContactEmail}
+              onChange={(e) => setLegalContactEmail(e.target.value)}
+              placeholder="privacy@example.com"
+              className="flex-1 min-w-[16rem] px-3 py-2 bg-background border border-border rounded-lg text-sm"
+            />
+            <button
+              onClick={saveLegalContact}
+              disabled={savingLegalContact}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {savingLegalContact ? "Saving..." : "Save"}
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Feed & video cache */}

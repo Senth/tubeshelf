@@ -8,6 +8,7 @@ import {
   useMemo,
   useCallback,
 } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeContext } from "@/components/ThemeProvider";
 import {
@@ -2541,6 +2542,21 @@ export default function Home() {
           <p className="mt-2 text-xs">
             A clean, chronological YouTube feed. No algorithm. No tracking.
           </p>
+          <nav className="mt-3 flex items-center justify-center gap-3 text-xs">
+            <Link
+              href="/privacy-policy"
+              className="hover:text-foreground underline underline-offset-2 transition"
+            >
+              Privacy Policy
+            </Link>
+            <span aria-hidden="true">&middot;</span>
+            <Link
+              href="/terms-of-service"
+              className="hover:text-foreground underline underline-offset-2 transition"
+            >
+              Terms of Service
+            </Link>
+          </nav>
         </div>
       </footer>
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
 import {
   clampNumericSetting,
+  normalizeLegalContactEmail,
   numericSettingLimits,
   readSettings,
   writeSettings,
@@ -20,6 +21,7 @@ function serialize(settings: AppSettings) {
   return {
     oidcOnly: !!settings.oidcOnly,
     publicRegistration: !!settings.publicRegistration,
+    legalContactEmail: settings.legalContactEmail || "",
     ...numeric,
     limits: numericSettingLimits,
   };
@@ -56,6 +58,17 @@ export async function POST(req: Request) {
 
   if (typeof body?.publicRegistration === "boolean") {
     updates.publicRegistration = body.publicRegistration;
+  }
+
+  if (body?.legalContactEmail !== undefined) {
+    const email = normalizeLegalContactEmail(body.legalContactEmail);
+    if (email === null) {
+      return NextResponse.json(
+        { error: "legalContactEmail must be a valid email address" },
+        { status: 400 }
+      );
+    }
+    updates.legalContactEmail = email;
   }
 
   for (const key of NUMERIC_KEYS) {
