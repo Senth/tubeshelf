@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { LegalFooter } from "@/components/LegalFooter";
+import { TubeShelfMark } from "@/components/TubeShelfMark";
 import {
   AlertCircle,
   AlertTriangle,
@@ -196,52 +199,26 @@ export default function Login() {
           {/* Tubeshelf Branding */}
           <div className="text-center mb-8">
             <div className="inline-block mb-4">
-              {/* Light mode icon */}
-              <svg
-                width="80"
-                height="80"
-                viewBox="0 0 100 100"
-                xmlns="http://www.w3.org/2000/svg"
-                className="dark:hidden"
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="100"
-                  height="100"
-                  rx="18"
-                  fill="#e0e0e0"
-                />
-                <rect x="18" y="58" width="64" height="12" fill="#333" />
-                <rect x="18" y="66" width="64" height="4" fill="#555" />
-                <rect x="26" y="38" width="12" height="26" fill="#666" />
-                <rect x="44" y="32" width="12" height="32" fill="#888" />
-                <polygon points="62,32 78,50 62,64" fill="#d32f2f" />
-              </svg>
-              {/* Dark mode icon */}
-              <svg
-                width="80"
-                height="80"
-                viewBox="0 0 100 100"
-                xmlns="http://www.w3.org/2000/svg"
-                className="hidden dark:block"
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="100"
-                  height="100"
-                  rx="18"
-                  fill="#1e1e1e"
-                />
-                <rect x="18" y="58" width="64" height="12" fill="#3b3b3b" />
-                <rect x="18" y="66" width="64" height="4" fill="#2a2a2a" />
-                <rect x="26" y="38" width="12" height="26" fill="#666" />
-                <rect x="44" y="32" width="12" height="32" fill="#777" />
-                <polygon points="62,32 78,50 62,64" fill="#d32f2f" />
-              </svg>
+              <TubeShelfMark size={80} />
             </div>
             <h1 className="text-3xl font-bold text-foreground">TubeShelf</h1>
+          </div>
+
+          {/* What the app is. Signed-out visitors land here from "/", so this
+              is the only description they get — including Google's OAuth
+              verification review. */}
+          <div className="mb-8 pb-8 border-b border-border text-center">
+            <h2 className="text-lg font-semibold text-foreground">
+              Your YouTube subscriptions, in order
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              TubeShelf is a self-hosted feed of the channels you follow, sorted
+              by upload time instead of by an algorithm — no recommendations, no
+              ads, no tracking. Watch videos in a built-in player that remembers
+              where you stopped, mark them watched, and keep a watch-later list.
+              Linking a Google account is optional and only enables liking a
+              video from the player.
+            </p>
           </div>
 
           <h2 className="text-xl font-semibold text-center mb-6 text-foreground">
@@ -456,6 +433,8 @@ export default function Login() {
             </>
           )}
         </div>
+
+        <LegalFooter showBlurb={false} />
       </div>
     </div>
   );

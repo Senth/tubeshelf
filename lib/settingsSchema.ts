@@ -15,6 +15,12 @@ export interface AppSettings {
   fetchMethod: "standard" | "rss";
   oidcOnly: boolean;
   publicRegistration: boolean;
+  /**
+   * Address shown on /privacy-policy and /terms-of-service so visitors can
+   * reach whoever runs this instance. Empty means "no address published", and
+   * the pages fall back to telling the reader to contact the administrator.
+   */
+  legalContactEmail: string;
   /** Instance default for how long videos are kept, in days. 0 = forever. */
   videoRetentionDays: number;
   /** Channels fetched in parallel. */
@@ -39,6 +45,7 @@ export const defaultSettings: AppSettings = {
   fetchMethod: "standard",
   oidcOnly: false,
   publicRegistration: false,
+  legalContactEmail: "",
   videoRetentionDays: 270, // 9 months
   feedConcurrency: 8,
   feedChannelTimeoutSeconds: 15,
@@ -78,6 +85,21 @@ export function clampNumericSetting(
 
   const { min, max } = numericSettingLimits[key];
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+/**
+ * Trim a submitted contact address. Returns null when it is not usable, so the
+ * admin API can reject it rather than publishing a typo on the legal pages.
+ * Empty input is valid and clears the setting.
+ */
+export function normalizeLegalContactEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.length > 254) return null;
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : null;
 }
 
 /**
