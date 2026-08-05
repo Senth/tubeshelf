@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { AuthExpiredError, feedManager } from "@/lib/feedManager";
+import { formatViewingTime, sumViewingTime } from "@/lib/duration";
 import { useAuth } from "@/hooks/useAuth";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
@@ -84,7 +85,7 @@ import type {
 } from "@/lib/subscriptionListStore";
 import type { Page, FeedTab, WatchLaterItem } from "@/lib/pageTypes";
 import {
-  arraysHaveSameIds,
+  videoListsMatch,
   filterAndSortVideos,
   getThemeIconUrl,
 } from "@/lib/videoUtils";
@@ -480,6 +481,23 @@ export default function Home() {
     setHighlightedVideoIndex(null);
   }, [filteredVideos]);
 
+  // Total length of everything currently listed. Durations are backfilled per
+  // video, so while some are still unknown the total is a lower bound and is
+  // prefixed with ">".
+  const viewingTime = useMemo(() => {
+    const { seconds, complete } = sumViewingTime(filteredVideos);
+    if (seconds <= 0) return null;
+
+    const formatted = formatViewingTime(seconds);
+
+    return {
+      label: complete ? formatted : `>${formatted}`,
+      title: complete
+        ? undefined
+        : "Some video lengths are still being looked up, so the real total is higher.",
+    };
+  }, [filteredVideos]);
+
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 400);
@@ -864,7 +882,7 @@ export default function Home() {
     // Subscribe to feed manager (skip auto-init, we'll initialize manually based on welcome state)
     const unsubscribe = feedManager.subscribe(
       (feedData) => {
-        if (!arraysHaveSameIds(videosRef.current, feedData.videos)) {
+        if (!videoListsMatch(videosRef.current, feedData.videos)) {
           setVideos(feedData.videos);
           videosRef.current = feedData.videos;
         }
@@ -1929,6 +1947,14 @@ export default function Home() {
                 </span>
                 <span>•</span>
                 <span>{filteredVideos.length} videos</span>
+                {viewingTime && (
+                  <>
+                    <span>•</span>
+                    <span title={viewingTime.title}>
+                      {viewingTime.label} viewing time
+                    </span>
+                  </>
+                )}
               </div>
               {error && (
                 <p className="text-sm text-destructive mt-2">{error}</p>
@@ -2165,7 +2191,7 @@ export default function Home() {
                               title={video.title}
                               channel={video.channel}
                               thumbnail={video.thumbnail}
-                              duration={video.duration}
+                              durationSeconds={video.durationSeconds}
                               uploadedAt={video.uploadedAt}
                               views={video.views}
                               watched={watchedVideos.has(video.id)}
