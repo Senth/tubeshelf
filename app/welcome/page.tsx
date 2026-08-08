@@ -40,7 +40,7 @@ const FEATURES = [
   {
     icon: PlayCircle,
     title: "Built-in player",
-    body: "Watch without leaving the app. It remembers where you stopped, marks videos watched, and can skip sponsor segments.",
+    body: "Watch without leaving the app. It remembers where you stopped, marks videos watched once you finish them, and can skip sponsor segments.",
   },
   {
     icon: Download,
