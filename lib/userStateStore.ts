@@ -2,7 +2,9 @@ import { getDb } from "./db";
 import { migrateFromJson } from "./migrate";
 import {
   AUTO_LIKE_THRESHOLD_DEFAULT,
+  WATCHED_THRESHOLD_DEFAULT,
   clampAutoLikeThreshold,
+  clampWatchedThreshold,
 } from "./settingsSchema";
 
 export interface UserState {
@@ -23,6 +25,8 @@ export interface UserState {
   autoLikeEnabled?: boolean;
   /** Share of the video that must be watched before auto-like fires. */
   autoLikeThresholdPercent?: number;
+  /** Share of the video that must be played before it counts as watched. */
+  watchedThresholdPercent?: number;
   /**
    * How long this user wants videos kept, in days. 0 = forever,
    * null = follow the instance default (`videoRetentionDays`).
@@ -101,6 +105,10 @@ export async function readUserState(userId: string): Promise<UserState> {
       typeof config.autoLikeThresholdPercent === "number"
         ? clampAutoLikeThreshold(config.autoLikeThresholdPercent)
         : AUTO_LIKE_THRESHOLD_DEFAULT,
+    watchedThresholdPercent:
+      typeof config.watchedThresholdPercent === "number"
+        ? clampWatchedThreshold(config.watchedThresholdPercent)
+        : WATCHED_THRESHOLD_DEFAULT,
     videoRetentionDays:
       typeof config.videoRetentionDays === "number"
         ? config.videoRetentionDays
@@ -155,6 +163,11 @@ export async function writeUserState(state: UserState, userId: string) {
       userId,
       "autoLikeThresholdPercent",
       JSON.stringify(clampAutoLikeThreshold(state.autoLikeThresholdPercent))
+    );
+    configStmt.run(
+      userId,
+      "watchedThresholdPercent",
+      JSON.stringify(clampWatchedThreshold(state.watchedThresholdPercent))
     );
     const hasCompletedValue = !!state.hasCompletedWelcome;
     configStmt.run(

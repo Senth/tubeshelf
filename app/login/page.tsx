@@ -215,7 +215,8 @@ export default function Login() {
               TubeShelf is a self-hosted feed of the channels you follow, sorted
               by upload time instead of by an algorithm — no recommendations, no
               ads, no tracking. Watch videos in a built-in player that remembers
-              where you stopped, mark them watched, and keep a watch-later list.
+              where you stopped, marks them watched once you finish them, and
+              keeps a watch-later list.
               Linking a Google account is optional and only enables liking a
               video from the player.
             </p>
