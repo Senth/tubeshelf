@@ -1100,6 +1100,9 @@ const VideoPlayerComponent = ({
             ? null
             : current;
         }
+        if (hud.kind === "watched" && current.kind === "watched") {
+          return current.watched === hud.watched ? null : current;
+        }
         return current;
       });
       playerActionHudTimerRef.current = null;
