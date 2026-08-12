@@ -20,10 +20,28 @@ import {
 } from "lucide-react";
 import { TubeShelfMark } from "@/components/TubeShelfMark";
 
+/**
+ * The name here must be character-for-character the "App name" on the Google
+ * OAuth consent screen. Verification compares the consent screen name against
+ * the name it can read from this page, so it appears in the <title>, the
+ * application-name meta tag, the <h1>, the wordmark and the structured data
+ * below — changing it in one place only will fail review.
+ */
+const APP_NAME = "TubeShelf";
+
+const APP_DESCRIPTION =
+  "TubeShelf is a self-hosted web app that shows the YouTube channels you subscribe to as a plain chronological feed — no algorithm, no recommendations, no tracking.";
+
 export const metadata: Metadata = {
-  title: "TubeShelf - Your Clean YouTube Feed",
-  description:
-    "TubeShelf is a self-hosted app that shows the YouTube channels you subscribe to as a plain chronological feed — no algorithm, no recommendations, no tracking.",
+  title: `${APP_NAME} — Your Clean YouTube Feed`,
+  description: APP_DESCRIPTION,
+  applicationName: APP_NAME,
+  openGraph: {
+    type: "website",
+    siteName: APP_NAME,
+    title: `${APP_NAME} — Your Clean YouTube Feed`,
+    description: APP_DESCRIPTION,
+  },
 };
 
 const FEATURES = [
@@ -62,22 +80,44 @@ const FEATURES = [
 export default function WelcomePage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Machine-readable copy of the same claims, so a reviewer's automated
+          scan finds the app name and purpose without parsing the layout. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            name: APP_NAME,
+            alternateName: `${APP_NAME} — Your Clean YouTube Feed`,
+            applicationCategory: "MultimediaApplication",
+            operatingSystem: "Web browser",
+            description: APP_DESCRIPTION,
+            offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+          }),
+        }}
+      />
       <div className="mx-auto w-full max-w-4xl px-4 py-12 sm:py-20">
         {/* Hero */}
         <header className="text-center">
           <div className="inline-block">
             <TubeShelfMark size={80} />
           </div>
-          <p className="mt-4 text-2xl font-bold tracking-tight">TubeShelf</p>
+          <p className="mt-4 text-2xl font-bold tracking-tight">{APP_NAME}</p>
+          {/* One interpolation, not "{APP_NAME}: your ...": React splits mixed
+              children with a comment node, and the name has to read as one
+              unbroken string to whatever parses this page. */}
           <h1 className="mt-6 text-3xl sm:text-4xl font-bold tracking-tight text-balance">
-            Your YouTube subscriptions as a plain, chronological feed
+            {`${APP_NAME}: your YouTube subscriptions as a plain, chronological feed`}
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base sm:text-lg leading-relaxed text-muted-foreground">
-            TubeShelf is a self-hosted app for watching the YouTube channels you
-            already subscribe to. It collects their new uploads and shows them in
-            the order they were published — nothing else. There is no
-            recommendation engine, no home-page algorithm, no advertising and no
-            tracking. You see the channels you chose, and only those.
+            <strong className="text-foreground">
+              {`${APP_NAME} is a self-hosted web app for watching the YouTube channels you already subscribe to.`}
+            </strong>{" "}
+            It collects their new uploads and shows them in the order they were
+            published — nothing else. There is no recommendation engine, no
+            home-page algorithm, no advertising and no tracking. You see the
+            channels you chose, and only those.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
@@ -91,6 +131,12 @@ export default function WelcomePage() {
               className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent"
             >
               Privacy Policy
+            </Link>
+            <Link
+              href="/terms-of-service"
+              className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent"
+            >
+              Terms of Service
             </Link>
           </div>
         </header>
