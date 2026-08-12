@@ -35,6 +35,20 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Signed-out visitors get the landing page at "/" itself, rewritten rather
+  // than redirected: Google's OAuth verification requires the homepage URL to be
+  // publicly reachable, non-redirecting, and to explain the app and its use of
+  // Google account data without anyone signing in. Sending them to the sign-in
+  // form — or, on a fresh instance, to the setup form — fails that review, so
+  // this runs before both redirects below.
+  const sessionId = readSessionCookie(
+    (name) => request.cookies.get(name)?.value
+  );
+
+  if (!sessionId && pathname === "/") {
+    return NextResponse.rewrite(new URL("/welcome", request.url));
+  }
+
   // Check if setup is needed - redirect all non-public routes to setup
   if (needsSetup() && !publicPaths.some((path) => pathname.startsWith(path))) {
     return NextResponse.redirect(new URL("/setup", request.url));
@@ -49,24 +63,11 @@ export function proxy(request: NextRequest) {
 
   // For authenticated routes, we'll check the session in the API route itself
   // The middleware just passes the session cookie through
-  const sessionId = readSessionCookie(
-    (name) => request.cookies.get(name)?.value
-  );
-
   if (!sessionId && pathname.startsWith("/api/")) {
     return NextResponse.json(
       { error: "Authentication required" },
       { status: 401 }
     );
-  }
-
-  // Signed-out visitors get the landing page at "/" itself, rewritten rather
-  // than redirected: Google's OAuth verification requires the homepage URL to be
-  // publicly reachable, non-redirecting, and to explain the app and its use of
-  // Google account data without anyone signing in. Sending them straight to the
-  // sign-in form fails that review.
-  if (!sessionId && pathname === "/") {
-    return NextResponse.rewrite(new URL("/welcome", request.url));
   }
 
   // For page routes without session, redirect to login

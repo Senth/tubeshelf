@@ -5,9 +5,12 @@ import "plyr/dist/plyr.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
-  title: "TubeShelf - Your Clean YouTube Feed",
+  // "TubeShelf" has to read the same here as on the Google OAuth consent
+  // screen; verification compares the two names.
+  title: "TubeShelf — Your Clean YouTube Feed",
   description:
-    "Self-hosted YouTube subscription feed with chronological ordering",
+    "TubeShelf is a self-hosted YouTube subscription feed with chronological ordering",
+  applicationName: "TubeShelf",
   icons: {
     icon: [
       { url: "/icon-light.svg", media: "(prefers-color-scheme: light)" },
