@@ -36,6 +36,11 @@ import {
 import ClientOnly from "@/components/ClientOnly";
 import { AuthExpiredError, feedManager } from "@/lib/feedManager";
 import { formatViewingTime, sumViewingTime } from "@/lib/duration";
+import {
+  clearLocalFilterPreferences,
+  readLocalFilterPreferences,
+  writeLocalFilterPreferences,
+} from "@/lib/localFilterPreferences";
 import { useAuth } from "@/hooks/useAuth";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
@@ -187,6 +192,10 @@ export default function Home() {
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const [userStateLoaded, setUserStateLoaded] = useState(false);
+  // Gate for the filter-toggle persistence effects: until the stored values are
+  // applied, hideWatched/hideMemberOnly still hold their empty mount defaults
+  // and writing those out would wipe the user's real preference.
+  const [filterPrefsHydrated, setFilterPrefsHydrated] = useState(false);
   const [hasCompletedWelcome, setHasCompletedWelcome] =
     useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
@@ -590,8 +599,23 @@ export default function Home() {
         );
         watchedVideosRef.current = watchedSet;
         setWatchedVideos(watchedSet);
-        setHideWatched(data.hideWatched || false);
-        setHideMemberOnly(data.hideMemberOnly || false);
+        // The filter toggles are a per-device preference: what this device last
+        // stored wins, and the account-level value only seeds a device that has
+        // never stored anything.
+        const localFilters = user
+          ? readLocalFilterPreferences(user.id)
+          : {};
+        setHideWatched(
+          typeof localFilters.hideWatched === "boolean"
+            ? localFilters.hideWatched
+            : data.hideWatched || false
+        );
+        setHideMemberOnly(
+          typeof localFilters.hideMemberOnly === "boolean"
+            ? localFilters.hideMemberOnly
+            : data.hideMemberOnly || false
+        );
+        setFilterPrefsHydrated(true);
         setVideoRetentionDays(
           typeof data.videoRetentionDays === "number"
             ? data.videoRetentionDays
@@ -1077,17 +1101,24 @@ export default function Home() {
     init();
   }, [authLoading, user]);
 
+  // Persist the filter toggles to this device, so the next sign-in on the same
+  // browser starts with them already applied.
+  useEffect(() => {
+    if (!user || !filterPrefsHydrated) return;
+    writeLocalFilterPreferences(user.id, { hideWatched, hideMemberOnly });
+  }, [hideWatched, hideMemberOnly, user, filterPrefsHydrated]);
+
   // Persist hideWatched to database
   useEffect(() => {
-    if (!user) return; // Don't persist before user is authenticated
+    if (!user || !filterPrefsHydrated) return;
     persistUserState({ hideWatched });
-  }, [hideWatched, user]);
+  }, [hideWatched, user, filterPrefsHydrated]);
 
   // Persist hideMemberOnly to database
   useEffect(() => {
-    if (!user) return; // Don't persist before user is authenticated
+    if (!user || !filterPrefsHydrated) return;
     persistUserState({ hideMemberOnly });
-  }, [hideMemberOnly, user]);
+  }, [hideMemberOnly, user, filterPrefsHydrated]);
 
   // Persist filterListId to database
   useEffect(() => {
@@ -1272,6 +1303,11 @@ export default function Home() {
       await resetAllSettings();
       const freshSettings = await getSettings();
       setSettings(freshSettings);
+      // The server side of the reset clears the filter toggles too, so drop the
+      // per-device copy as well instead of letting it restore them on reload.
+      if (user) clearLocalFilterPreferences(user.id);
+      setHideWatched(false);
+      setHideMemberOnly(false);
     } catch (err) {
       console.error("Failed to reset settings:", err);
     }
