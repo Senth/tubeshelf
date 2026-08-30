@@ -10,7 +10,6 @@ import {
   ChevronRight,
   AlertTriangle,
 } from "lucide-react";
-import { Button } from "./ui/button";
 
 interface DashboardSection {
   id: string;
@@ -45,7 +44,11 @@ export function UnifiedDashboardLayout({
   title = "Dashboard",
   showSidebar = true,
 }: UnifiedDashboardLayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Mobile: closed by default so the overlay never covers the settings
+  // content; opens as a drawer over a backdrop. Desktop: always visible,
+  // collapsible to icons.
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [version, setVersion] = useState<string>("");
 
   useEffect(() => {
@@ -74,25 +77,29 @@ export function UnifiedDashboardLayout({
           className={`
             border border-border/50 bg-card/50 backdrop-blur-sm
             transition-all duration-300 ease-out rounded-2xl
-            ${sidebarOpen ? "w-64" : "w-20"}
-            overflow-hidden flex flex-col
-            lg:relative fixed left-4 top-4 h-[calc(100vh-2rem)] z-30
-            lg:static lg:h-auto lg:top-auto lg:left-auto
+            overflow-hidden flex-col
+            ${
+              mobileOpen
+                ? "flex fixed left-4 top-4 h-[calc(100vh-2rem)] z-30 w-64"
+                : "hidden lg:flex"
+            }
+            lg:static lg:h-auto lg:top-auto lg:left-auto lg:z-auto
+            ${desktopCollapsed ? "lg:w-20" : "lg:w-64"}
           `}
         >
           {/* Sidebar Header */}
           <div className="border-b border-border/30 p-4 flex items-center justify-between">
-            {sidebarOpen && (
+            {!desktopCollapsed && (
               <h2 className="font-semibold text-foreground truncate">Menu</h2>
             )}
             <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+              onClick={() => setDesktopCollapsed(!desktopCollapsed)}
               className="p-1.5 rounded-md hover:bg-primary/5 transition-colors hidden lg:block"
               aria-label="Toggle sidebar"
             >
               <ChevronRight
                 className={`w-4 h-4 transition-transform duration-300 ${
-                  !sidebarOpen ? "rotate-180" : ""
+                  desktopCollapsed ? "rotate-180" : ""
                 }`}
               />
             </button>
@@ -107,7 +114,7 @@ export function UnifiedDashboardLayout({
 
                 return (
                   <div key={categoryKey} className="mb-4">
-                    {sidebarOpen && (
+                    {!desktopCollapsed && (
                       <div className="px-4 py-3">
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                           {categoryLabel}
@@ -122,10 +129,8 @@ export function UnifiedDashboardLayout({
                             key={section.id}
                             onClick={() => {
                               onSectionChange(section.id);
-                              // Close sidebar on mobile after selection
-                              if (window.innerWidth < 1024) {
-                                setSidebarOpen(false);
-                              }
+                              // Close the drawer on mobile after selection
+                              setMobileOpen(false);
                             }}
                             className={`
                             w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
@@ -146,7 +151,7 @@ export function UnifiedDashboardLayout({
                             <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                               {section.icon}
                             </span>
-                            {sidebarOpen && (
+                            {!desktopCollapsed && (
                               <>
                                 <span className="flex-1 text-left truncate">
                                   {section.label}
@@ -169,7 +174,7 @@ export function UnifiedDashboardLayout({
           </div>
 
           {/* Version Display at Bottom - Always Visible */}
-          {sidebarOpen && version && (
+          {!desktopCollapsed && version && (
             <div className="border-t border-border/30 px-4 py-3 bg-card/30 flex-shrink-0">
               <p className="text-xs text-muted-foreground/60 text-center">
                 TubeShelf v{version}
@@ -184,24 +189,30 @@ export function UnifiedDashboardLayout({
         {/* Header */}
         <div className="border-b border-border/30 bg-card/30 sticky top-0 z-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex items-center justify-between">
-            {!showSidebar && (
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="lg:hidden p-1.5 rounded-md hover:bg-primary/5 transition-colors mr-2"
-                aria-label="Toggle sidebar"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">
-                {currentSectionData?.label || title}
-              </h1>
-              {currentSectionData?.description && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  {currentSectionData.description}
-                </p>
+            <div className="flex items-center min-w-0">
+              {showSidebar && (
+                <button
+                  onClick={() => setMobileOpen(!mobileOpen)}
+                  className="lg:hidden p-1.5 rounded-md hover:bg-primary/5 transition-colors mr-2"
+                  aria-label="Toggle sidebar"
+                >
+                  <ChevronRight
+                    className={`w-5 h-5 transition-transform duration-300 ${
+                      mobileOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
               )}
+              <div className="min-w-0">
+                <h1 className="text-3xl font-bold text-foreground">
+                  {currentSectionData?.label || title}
+                </h1>
+                {currentSectionData?.description && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {currentSectionData.description}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -215,10 +226,10 @@ export function UnifiedDashboardLayout({
       </main>
 
       {/* Mobile Overlay */}
-      {sidebarOpen && showSidebar && (
+      {mobileOpen && showSidebar && (
         <div
           className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => setMobileOpen(false)}
         />
       )}
     </div>
