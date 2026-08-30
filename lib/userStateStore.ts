@@ -1,6 +1,9 @@
 import { getDb } from "./db";
 import { migrateFromJson } from "./migrate";
 import {
+  readChannelAutoLikeOverrides,
+} from "./channelConfigStore";
+import {
   AUTO_LIKE_THRESHOLD_DEFAULT,
   WATCHED_THRESHOLD_DEFAULT,
   clampAutoLikeThreshold,
@@ -115,6 +118,26 @@ export async function readUserState(userId: string): Promise<UserState> {
         : null,
     watchLater,
   };
+}
+
+/**
+ * Whether auto-like should fire for this video: the channel's override when it
+ * has one, the user default otherwise. One resolver so every entry point (the
+ * player threshold, open-on-YouTube, casting from the feed) decides alike —
+ * cast entries often carry no channel info, so this looks the video up itself.
+ * A video missing from the `videos` table falls back to the user default.
+ */
+export async function isAutoLikeEnabledForVideo(
+  userId: string,
+  videoId: string
+): Promise<boolean> {
+  const state = await readUserState(userId);
+  const row = getDb()
+    .prepare("SELECT channel_id FROM videos WHERE video_id = ?")
+    .get(videoId) as { channel_id: string } | undefined;
+  if (!row) return !!state.autoLikeEnabled;
+  const overrides = await readChannelAutoLikeOverrides(userId);
+  return overrides[row.channel_id] ?? !!state.autoLikeEnabled;
 }
 
 export async function writeUserState(state: UserState, userId: string) {
