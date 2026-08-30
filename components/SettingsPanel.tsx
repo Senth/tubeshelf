@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useContext, useEffect, useRef } from "react";
-import { AlertTriangle, HelpCircle, Palette, Zap } from "lucide-react";
+import { AlertTriangle, HelpCircle, Palette, Tv, Zap } from "lucide-react";
 import { Button } from "./ui/button";
 import { ThemeContext } from "./ThemeProvider";
 import {
@@ -14,6 +14,7 @@ import {
   type AppSettings,
 } from "@/lib/settingsSchema";
 import { YouTubeAccountPanel } from "./YouTubeAccountPanel";
+import { CastDeviceList } from "./CastDeviceList";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -537,6 +538,22 @@ export function SettingsPanel({
               onAutoLikeThresholdChange={onAutoLikeThresholdChange}
               onShowToast={onShowToast}
             />
+
+            {/* Linked TVs for casting */}
+            <div className="bg-card/50 border border-border/30 rounded-xl overflow-hidden backdrop-blur-sm">
+              <div className="p-5 pb-3">
+                <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Tv className="w-4 h-4 text-primary" />
+                  TVs &amp; Casting
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cast feed videos straight to a TV. Chromecasts are found
+                  automatically; other TVs link once with the code in the
+                  YouTube app&apos;s settings under &ldquo;Watch on TV&rdquo;.
+                </p>
+              </div>
+              <CastDeviceList onShowToast={onShowToast} />
+            </div>
 
           </div>
         </>
