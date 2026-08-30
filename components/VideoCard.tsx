@@ -7,6 +7,7 @@ import {
   Check,
   Share2,
   CheckCircle2,
+  Cast,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
@@ -62,6 +63,7 @@ interface VideoCardProps {
   onWatch?: () => void;
   onWatchLater?: () => void;
   onMarkWatched?: () => void;
+  onCast?: () => void;
   onChannelClick?: (channelName: string) => void;
   onPlayInPlayer?: (videoUrl: string) => void;
   useBuiltInPlayer?: boolean;
@@ -84,6 +86,7 @@ export function VideoCard({
   onWatch,
   onWatchLater,
   onMarkWatched,
+  onCast,
   onChannelClick,
   onPlayInPlayer,
   useBuiltInPlayer = false,
@@ -305,6 +308,18 @@ export function VideoCard({
                     <Eye className="w-4 h-4 flex-shrink-0" />
                     {watched ? "Mark as unwatched" : "Mark as watched"}
                   </button>
+                  {onCast && (
+                    <button
+                      onClick={() => {
+                        onCast();
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 transition-colors flex items-center gap-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"
+                    >
+                      <Cast className="w-4 h-4 flex-shrink-0" />
+                      Cast to TV
+                    </button>
+                  )}
                   <button
                     onClick={handleWatchLater}
                     className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/5 transition-colors flex items-center gap-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset"

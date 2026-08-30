@@ -20,6 +20,10 @@ import {
   EyeOff,
 } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
+import {
+  readPlaybackSpeedPreference,
+  writePlaybackSpeedPreference,
+} from "@/lib/playbackSpeedPreference";
 
 type SponsorBlockSegment = {
   segment: [number, number];
@@ -228,6 +232,8 @@ interface VideoPlayerProps {
   videoTitle: string;
   channelName: string;
   channelId?: string;
+  /** Lets the player remember its speed per device. */
+  userId?: string;
   channelThumbnail?: string;
   videoUrl: string;
   onClose: () => void;
@@ -299,6 +305,7 @@ const VideoPlayerComponent = ({
   videoTitle,
   channelName,
   channelId,
+  userId,
   channelThumbnail,
   videoUrl,
   onClose,
@@ -529,6 +536,8 @@ const VideoPlayerComponent = ({
       return;
     }
     updatePlayerDebugSnapshot();
+    // Snapshot reads refs; it must only run when the toggle flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debugOverlayEnabled]);
 
   useEffect(() => {
@@ -554,6 +563,8 @@ const VideoPlayerComponent = ({
   useEffect(() => {
     if (!debugOverlayEnabled) return;
     updatePlayerDebugSnapshot();
+    // Same ref-based snapshot: refresh only on the two triggers that change it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debugOverlayEnabled, isFullscreen]);
 
   useEffect(() => {
@@ -661,6 +672,9 @@ const VideoPlayerComponent = ({
       cancelled = true;
       controller.abort();
     };
+    // Reload only when the video or the toggles change; the snapshot helpers
+    // read refs and would just repeat work on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ytVideoId, sponsorBlockEnabled]);
 
   const toggleFullscreen = async () => {
@@ -1881,6 +1895,9 @@ const VideoPlayerComponent = ({
     let disposed = false;
     let localPlayer: PlyrPlayer | null = null;
     const playerInstanceSeq = ++playerInstanceSeqRef.current;
+    // Refs are attached before effects run, so this is the container this
+    // mount owns; the cleanup must not look the node up again later.
+    const container = playerContainerRef.current;
 
     const isLocalPlayerLive = () =>
       !disposed &&
@@ -1960,6 +1977,15 @@ const VideoPlayerComponent = ({
             localPlayer!.currentTime = startSeconds;
           } catch {
             // Ignore seek failures during early provider init.
+          }
+        }
+        // Restore this device's preferred speed before the first play fires.
+        const storedSpeed = readPlaybackSpeedPreference(userId ?? "");
+        if (storedSpeed !== null && storedSpeed !== 1) {
+          try {
+            localPlayer!.speed = storedSpeed;
+          } catch {
+            // Rate not settable yet — the ratechange persistence keeps it.
           }
         }
         containerRef.current?.focus();
@@ -2072,6 +2098,9 @@ const VideoPlayerComponent = ({
       localPlayer.on("ratechange", () => {
         if (!isLocalPlayerLive()) return;
         showSpeedActionHud(localPlayer);
+        // Remember the rate for the next video and for casting.
+        const rate = Number(localPlayer.speed);
+        if (Number.isFinite(rate)) writePlaybackSpeedPreference(userId ?? "", rate);
         updatePlayerDebugSnapshot(localPlayer);
       });
 
@@ -2109,8 +2138,8 @@ const VideoPlayerComponent = ({
       }
       if (player) {
         const canSafelyDestroy =
-          !!playerContainerRef.current?.isConnected &&
-          !!playerContainerRef.current?.querySelector("iframe")?.isConnected;
+          !!container?.isConnected &&
+          !!container?.querySelector("iframe")?.isConnected;
         if (canSafelyDestroy) {
           try {
             player.destroy();
@@ -2119,10 +2148,13 @@ const VideoPlayerComponent = ({
           }
         }
       }
-      if (playerContainerRef.current) {
-        playerContainerRef.current.innerHTML = "";
+      if (container) {
+        container.innerHTML = "";
       }
     };
+    // Event handlers close over refs, so a once-per-video binding is the
+    // intent; the helper functions they call all read state through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ytVideoId, initialProgress]);
 
   // Session caption state follows the persisted values whenever the video or
@@ -2191,6 +2223,9 @@ const VideoPlayerComponent = ({
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
+    // Quality application only depends on readiness, the chosen quality and
+    // the video; everything else arrives through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerReady, quality, ytVideoId]);
 
   useEffect(() => {
@@ -2201,6 +2236,8 @@ const VideoPlayerComponent = ({
       updatePlayerDebugSnapshot(playerRef.current);
     }, 120);
     return () => window.clearTimeout(timer);
+    // Re-apply only when fullscreen/quality/readiness change, per above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFullscreen, playerReady, quality]);
 
   useEffect(() => {
@@ -2587,6 +2624,9 @@ const VideoPlayerComponent = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // Shortcut handlers read live values through refs; binding the listener
+    // once per player-ready state is the intent, not a stale-closure bug.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, playerReady]);
 
   // Close header dropdowns when clicking outside
@@ -2640,6 +2680,8 @@ const VideoPlayerComponent = ({
         handleFullscreenChange
       );
     };
+    // Reads refs only; the listeners live for the player's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keep Plyr fullscreen button state in sync with our native fullscreen target.
@@ -3536,6 +3578,7 @@ const VideoPlayerComponent = ({
                   className="flex items-center gap-3 hover:bg-white/10 rounded-lg p-2 -m-2 transition-colors group cursor-pointer"
                 >
                   {channelThumbnail ? (
+                    /* eslint-disable-next-line @next/next/no-img-element -- proxied remote avatar, next/image has no pipeline for it */
                     <img
                       src={getProxiedImageUrl(channelThumbnail)}
                       alt={displayChannelName}
@@ -3654,6 +3697,7 @@ const VideoPlayerComponent = ({
                           <div className="flex items-start gap-3">
                             {comment.authorAvatarUrl &&
                             !failedAvatarIds.has(comment.id) ? (
+                              /* eslint-disable-next-line @next/next/no-img-element -- remote avatar with onError fallback, next/image adds nothing here */
                               <img
                                 src={getProxiedImageUrl(comment.authorAvatarUrl)}
                                 alt={comment.author}

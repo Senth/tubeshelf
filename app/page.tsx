@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   ArrowUp,
   ThumbsUp,
+  Cast,
 } from "lucide-react";
 import ClientOnly from "@/components/ClientOnly";
 import { AuthExpiredError, feedManager } from "@/lib/feedManager";
@@ -41,9 +42,14 @@ import {
   readLocalFilterPreferences,
   writeLocalFilterPreferences,
 } from "@/lib/localFilterPreferences";
+import { readPlaybackSpeedPreference } from "@/lib/playbackSpeedPreference";
 import { useAuth } from "@/hooks/useAuth";
 import { VideoCard } from "@/components/VideoCard";
 import { VideoCardSkeleton } from "@/components/VideoCardSkeleton";
+import {
+  CastDevicePicker,
+  type CastPickedDevice,
+} from "@/components/CastDevicePicker";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PlaybackHistory } from "@/components/PlaybackHistory";
 import { SubscriptionManager } from "@/components/SubscriptionManager";
@@ -185,6 +191,15 @@ export default function Home() {
   const [playerQuality, setPlayerQuality] = useState<
     "360p" | "480p" | "720p" | "1080p"
   >("1080p");
+  // Feed card waiting for the device picker, and the live cast session shown
+  // in the corner chip. Restored from the server on load so a page refresh
+  // does not lose the "Casting to …" indicator.
+  const [castPickerVideo, setCastPickerVideo] = useState<Video | null>(null);
+  const [activeCast, setActiveCast] = useState<{
+    id: string;
+    name: string;
+    videoId: string;
+  } | null>(null);
 
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
@@ -327,6 +342,10 @@ export default function Home() {
     // Listen for hash changes (browser back/forward)
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
+    // Deliberately keyed on videos.length: re-binding on every fetch would be
+    // noise, and showPlayer is read through state that only matters when the
+    // hash itself changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, videos.length, resolveResumeSeconds]);
 
   // Close the ad-hoc "more" menu when clicking outside
@@ -501,6 +520,9 @@ export default function Home() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // Handlers are stable enough for the keyboard path; re-binding the window
+    // listener on every state change would churn more than it protects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     filteredVideos,
     highlightedVideoIndex,
@@ -1099,6 +1121,9 @@ export default function Home() {
     };
 
     init();
+    // One-shot init per auth change. loadUserState is inlined here by design,
+    // and the wizard flag must not re-trigger a full reload mid-flow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user]);
 
   // Persist the filter toggles to this device, so the next sign-in on the same
@@ -1166,6 +1191,9 @@ export default function Home() {
     }, 200);
 
     return () => clearTimeout(timer);
+    // Only the sort order changes the filter result; keying on the whole
+    // settings object would re-run on every unrelated settings save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     searchQuery,
     videos,
@@ -1374,6 +1402,67 @@ export default function Home() {
       showToast("Failed to save watch status", "error");
     });
   };
+
+  /**
+   * Casting counts the same as opening the video on youtube.com: watched
+   * immediately, plus the auto-like when the user has it enabled. The like
+   * uses the same at-most-once guard as the player, so an unlike by hand
+   * survives a rewatch.
+   */
+  const handleCastStarted = (device: CastPickedDevice) => {
+    const video = castPickerVideo;
+    setCastPickerVideo(null);
+    if (!video) return;
+
+    setActiveCast({ id: device.id, name: device.name, videoId: video.id });
+    handleWatchVideo(video.id);
+
+    if (autoLikeEnabled) {
+      fetch("/api/youtube/rate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ videoId: video.id, rating: "like", auto: true }),
+      }).catch(() => {
+        // Best effort: a missing Google link should not spoil the cast.
+      });
+    }
+
+    showToast(`Casting to ${device.name}`, "success");
+  };
+
+  const handleStopCast = async () => {
+    if (!activeCast) return;
+    const device = activeCast;
+    setActiveCast(null);
+    try {
+      await fetch(`/api/cast?id=${encodeURIComponent(device.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      showToast("Casting stopped", "info");
+    } catch {
+      showToast("Could not reach the TV, casting stopped here", "error");
+    }
+  };
+
+  // Reconnect the casting chip with a session started before a page reload.
+  useEffect(() => {
+    if (!mounted || authLoading || !user) return;
+    fetch("/api/cast", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const session = data?.sessions?.[0];
+        if (session) {
+          setActiveCast({
+            id: session.id,
+            name: session.name,
+            videoId: session.videoId,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [mounted, authLoading, user]);
 
   const handlePlayWatchLater = (item: WatchLaterItem) => {
     const videoUrl = `https://www.youtube.com/watch?v=${item.videoId}`;
@@ -1809,6 +1898,7 @@ export default function Home() {
                   setSearchQuery("");
                 }}
               >
+                {/* eslint-disable-next-line @next/next/no-img-element -- theme icon, sized in CSS, no next/image pipeline for this asset */}
                 <img
                   src={iconUrl}
                   alt=""
@@ -2372,6 +2462,7 @@ export default function Home() {
                               isMemberOnly={video.isMemberOnly}
                               onWatch={() => handleWatchVideo(video.id)}
                               onWatchLater={() => handleAddToWatchLater(video)}
+                              onCast={() => setCastPickerVideo(video)}
                               onMarkWatched={() =>
                                 handleToggleWatched(video.id)
                               }
@@ -2663,6 +2754,7 @@ export default function Home() {
           videoTitle={playerVideo.title}
           channelName={playerVideo.channel}
           channelId={playerVideo.channelId}
+          userId={user?.id}
           channelThumbnail={
             playerVideo.channelId
               ? subscriptionLists
@@ -2789,6 +2881,35 @@ export default function Home() {
           onComplete={handleWelcomeWizardComplete}
           onSkip={handleWelcomeWizardSkip}
           onImportFile={handleWelcomeWizardImportFile}
+        />
+      )}
+
+      {/* Casting status */}
+      {activeCast && (
+        <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 rounded-full border border-border/60 bg-card/95 py-2 pl-3 pr-2 shadow-lg backdrop-blur-md">
+          <Cast className="w-4 h-4 text-primary" />
+          <span className="text-sm text-foreground max-w-48 truncate">
+            Casting to {activeCast.name}
+          </span>
+          <Button
+            onClick={handleStopCast}
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground hover:text-foreground"
+          >
+            Stop
+          </Button>
+        </div>
+      )}
+
+      {/* Cast device picker */}
+      {castPickerVideo && (
+        <CastDevicePicker
+          videoId={castPickerVideo.id}
+          speed={readPlaybackSpeedPreference(user?.id ?? "")}
+          onClose={() => setCastPickerVideo(null)}
+          onStarted={handleCastStarted}
+          onShowToast={showToast}
         />
       )}
 

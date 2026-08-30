@@ -87,6 +87,7 @@ export function WelcomeWizard({
       content: (
         <div className="text-center space-y-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded">
+            {/* eslint-disable-next-line @next/next/no-img-element -- static svg icon swapped per theme */}
             <img
               src={(() => {
                 if (theme === "dark") return "/icon-dark.svg";
