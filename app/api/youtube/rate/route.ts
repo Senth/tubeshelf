@@ -10,6 +10,7 @@ import {
   type VideoRating,
 } from "@/lib/youtubeAccountStore";
 import { isYouTubeOAuthConfigured } from "@/lib/youtubeOAuth";
+import { isAutoLikeEnabledForVideo } from "@/lib/userStateStore";
 
 function authErrorResponse(err: YouTubeAuthError) {
   // 409, not 401: the TubeShelf session is fine, it is the Google link that is
@@ -88,14 +89,27 @@ export async function POST(req: Request) {
     );
   }
 
+  const cached = readCachedRating(user.id, videoId);
+
+  // Auto-like only fires when the user opted in — globally or via the video's
+  // channel override. Cast entry points send this for every cast, so an
+  // opted-out user gets a quiet skip rather than an error or a spent quota.
+  // Checked before the OAuth guard for exactly that reason.
+  if (auto && !(await isAutoLikeEnabledForVideo(user.id, videoId))) {
+    return NextResponse.json({
+      available: true,
+      rating: cached?.rating ?? "none",
+      autoLiked: cached?.autoLiked ?? false,
+      skipped: "auto-disabled",
+    });
+  }
+
   if (!isYouTubeOAuthConfigured()) {
     return NextResponse.json(
       { error: "No YouTube OAuth client is configured", code: "not_configured" },
       { status: 409 }
     );
   }
-
-  const cached = readCachedRating(user.id, videoId);
 
   // Auto-like is at-most-once per video and never overrides a deliberate
   // choice, so a rewatch after unliking by hand stays unliked.
