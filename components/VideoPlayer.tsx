@@ -18,6 +18,7 @@ import {
   VolumeX,
   Eye,
   EyeOff,
+  Cast,
 } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 import {
@@ -266,6 +267,8 @@ interface VideoPlayerProps {
   watched?: boolean;
   /** Flip the watched flag from the header button or the `W` shortcut. */
   onToggleWatched?: () => void;
+  /** Open the cast picker for the video that is playing. */
+  onCast?: () => void;
   onShowToast?: (message: string, type: "success" | "error" | "info") => void;
   debugOverlayEnabled?: boolean;
   onDebugOverlayEnabledChange?: (enabled: boolean) => void | Promise<void>;
@@ -326,6 +329,7 @@ const VideoPlayerComponent = ({
   watchedThresholdPercent = 90,
   watched = false,
   onToggleWatched,
+  onCast,
   onShowToast,
   debugOverlayEnabled = false,
   onDebugOverlayEnabledChange,
@@ -3269,6 +3273,15 @@ const VideoPlayerComponent = ({
                 ) : (
                   <EyeOff className="w-5 h-5" />
                 )}
+              </button>
+
+              <button
+                onClick={onCast}
+                className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                title="Cast to TV"
+                aria-label="Cast to TV"
+              >
+                <Cast className="w-5 h-5" />
               </button>
 
               <a

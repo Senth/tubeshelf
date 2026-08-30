@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bookmark, Trash2, Eye, Share2, Check, Clock } from "lucide-react";
+import { Bookmark, Trash2, Eye, Share2, Check, Clock, Cast } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 
 interface WatchLaterItem {
@@ -20,6 +20,8 @@ interface WatchLaterProps {
   onPlay?: (item: WatchLaterItem) => void;
   onToggleWatched?: (videoId: string) => void;
   onShare?: (videoId: string) => void;
+  /** Open the cast picker for this video. */
+  onCast?: (item: WatchLaterItem) => void;
   onThumbnailError?: (item: WatchLaterItem) => void;
 }
 
@@ -31,6 +33,7 @@ export function WatchLater({
   onPlay,
   onToggleWatched,
   onShare,
+  onCast,
   onThumbnailError,
 }: WatchLaterProps) {
   const [copiedVideoId, setCopiedVideoId] = useState<string | null>(null);
@@ -154,6 +157,13 @@ export function WatchLater({
                   ) : (
                     <Share2 className="w-4 h-4 text-muted-foreground" />
                   )}
+                </button>
+                <button
+                  onClick={() => onCast?.(item)}
+                  className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                  title="Cast to TV"
+                >
+                  <Cast className="w-4 h-4 text-muted-foreground" />
                 </button>
                 <button
                   onClick={() => onRemove?.(item.id)}

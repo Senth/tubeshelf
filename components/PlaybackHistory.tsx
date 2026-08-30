@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Trash2, Play, History, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { Trash2, Play, History, AlertTriangle, Eye, EyeOff, Cast } from "lucide-react";
 import { getProxiedImageUrl } from "@/lib/videoUtils";
 import { Button } from "./ui/button";
 import type { PlaybackSession } from "@/lib/playbackHistoryStore";
@@ -20,6 +20,8 @@ interface PlaybackHistoryProps {
       thumbnail?: string | null;
     }
   ) => void;
+  /** Open the cast picker for a video from the history. */
+  onCast?: (session: PlaybackSession) => void;
 }
 
 export function PlaybackHistory({
@@ -27,6 +29,7 @@ export function PlaybackHistory({
   watchedVideos,
   onToggleWatched,
   onPlayVideo,
+  onCast,
 }: PlaybackHistoryProps) {
   const [history, setHistory] = useState<PlaybackSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,6 +270,13 @@ export function PlaybackHistory({
                     title="Resume playback"
                   >
                     <Play className="w-4 h-4 text-primary" />
+                  </button>
+                  <button
+                    onClick={() => onCast?.(session)}
+                    className="p-2 rounded-md hover:bg-primary/10 transition-colors"
+                    title="Cast to TV"
+                  >
+                    <Cast className="w-4 h-4 text-muted-foreground" />
                   </button>
                   <button
                     onClick={() => handleDelete(session.videoId)}

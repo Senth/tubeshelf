@@ -193,8 +193,11 @@ export default function Home() {
   >("1080p");
   // Feed card waiting for the device picker, and the live cast session shown
   // in the corner chip. Restored from the server on load so a page refresh
-  // does not lose the "Casting to …" indicator.
-  const [castPickerVideo, setCastPickerVideo] = useState<Video | null>(null);
+  // does not lose the "Casting to …" indicator. Every cast entry point —
+  // feed cards, the player, Watch Later, history — only supplies the id.
+  const [castPickerVideo, setCastPickerVideo] = useState<
+    Pick<Video, "id"> | null
+  >(null);
   const [activeCast, setActiveCast] = useState<{
     id: string;
     name: string;
@@ -2506,6 +2509,7 @@ export default function Home() {
                       const url = `https://www.youtube.com/watch?v=${videoId}`;
                       navigator.clipboard.writeText(url).catch(() => {});
                     }}
+                    onCast={(item) => setCastPickerVideo({ id: item.videoId })}
                   />
                 )}
 
@@ -2527,6 +2531,9 @@ export default function Home() {
                         typeof progress === "number" ? progress : undefined
                       );
                     }}
+                    onCast={(session) =>
+                      setCastPickerVideo({ id: session.videoId })
+                    }
                   />
                 )}
 
@@ -2566,6 +2573,7 @@ export default function Home() {
                   const url = `https://www.youtube.com/watch?v=${videoId}`;
                   navigator.clipboard.writeText(url).catch(() => {});
                 }}
+                onCast={(item) => setCastPickerVideo({ id: item.videoId })}
               />
             </div>
           </>
@@ -2766,6 +2774,7 @@ export default function Home() {
           videoUrl={playerVideo.videoUrl}
           onClose={handleClosePlayer}
           onMarkWatched={() => handleWatchVideo(playerVideo.videoId)}
+          onCast={() => setCastPickerVideo({ id: playerVideo.videoId })}
           onChannelClick={(channelName) =>
             setSearchQuery(searchQuery === channelName ? "" : channelName)
           }
