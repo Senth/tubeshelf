@@ -1421,14 +1421,26 @@ export default function Home() {
     handleWatchVideo(video.id);
 
     if (autoLikeEnabled) {
-      fetch("/api/youtube/rate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ videoId: video.id, rating: "like", auto: true }),
-      }).catch(() => {
-        // Best effort: a missing Google link should not spoil the cast.
-      });
+      // Best effort: the cast must not depend on the like, but a silent skip
+      // hides a dead Google link, so failures surface as a toast.
+      void (async () => {
+        try {
+          const res = await fetch("/api/youtube/rate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ videoId: video.id, rating: "like", auto: true }),
+          });
+          if (res.ok) return;
+          const data = await res.json().catch(() => null);
+          showToast(
+            data?.error ? `Auto-like failed: ${data.error}` : "Auto-like failed",
+            "error"
+          );
+        } catch {
+          showToast("Auto-like failed", "error");
+        }
+      })();
     }
 
     showToast(`Casting to ${device.name}`, "success");
