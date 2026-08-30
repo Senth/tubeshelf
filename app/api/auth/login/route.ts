@@ -5,6 +5,7 @@ import {
   getAuth,
   mapBetterAuthUser,
 } from "@/lib/betterAuth";
+import { issueDeviceToken } from "@/lib/deviceTokens";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { readSettings } from "@/lib/settingsStore";
 
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
           oidcProvider: mappedUser.oidcProvider,
           authType: mappedUser.authType,
         },
+        rememberToken: issueDeviceToken(mappedUser.id),
       },
       { status: (result as any).status || 200 }
     );

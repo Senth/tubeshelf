@@ -16,6 +16,7 @@ const publicPaths = [
   "/api/setup",
   "/api/auth/login",
   "/api/auth/register",
+  "/api/auth/remember",
   "/api/auth/session",
   "/api/auth/logout",
   "/api/auth/settings",

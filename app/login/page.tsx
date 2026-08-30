@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LegalFooter } from "@/components/LegalFooter";
 import { TubeShelfMark } from "@/components/TubeShelfMark";
+import { saveRememberToken } from "@/lib/rememberToken";
 import {
   AlertCircle,
   AlertTriangle,
@@ -142,6 +143,10 @@ export default function Login() {
       if (!response.ok) {
         setError(data.error || "Authentication failed");
         return;
+      }
+
+      if (typeof data.rememberToken === "string") {
+        saveRememberToken(data.rememberToken);
       }
 
       // Redirect to home page
