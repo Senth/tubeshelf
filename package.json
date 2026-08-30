@@ -18,6 +18,8 @@
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.4.19",
     "better-sqlite3": "^12.5.0",
+    "bonjour-service": "^1.4.4",
+    "castv2-client": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fast-xml-parser": "^5.3.6",
