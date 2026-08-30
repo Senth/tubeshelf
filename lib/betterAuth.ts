@@ -589,6 +589,18 @@ function ensureBetterAuthTables() {
     CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
     ON auth_sessions(user_id);
 
+    CREATE TABLE IF NOT EXISTS auth_device_tokens (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at DATE NOT NULL,
+      updated_at DATE NOT NULL,
+      expires_at DATE NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS auth_device_tokens_user_id_idx
+    ON auth_device_tokens(user_id);
+
     CREATE TABLE IF NOT EXISTS auth_verifications (
       id TEXT NOT NULL PRIMARY KEY,
       identifier TEXT NOT NULL,

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  takeRememberToken,
+  tryRememberLogin,
+} from "@/lib/rememberToken";
 
 export interface AuthUser {
   id: string;
@@ -31,11 +35,20 @@ export function useAuth(): UseAuthResult {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/me", {
+    const fetchMe = () =>
+      fetch("/api/auth/me", {
         credentials: "include",
         cache: "no-store",
       });
+
+    try {
+      let res = await fetchMe();
+
+      // Session cookie gone (e.g. Android PWA cleared it on app close)?
+      // Restore the session from the remembered device token.
+      if (res.status === 401 && (await tryRememberLogin())) {
+        res = await fetchMe();
+      }
 
       const data = await res.json().catch(() => null);
       setWarnings({
@@ -72,10 +85,13 @@ export function useAuth(): UseAuthResult {
   }, [refresh]);
 
   const logout = useCallback(async () => {
+    const rememberToken = takeRememberToken();
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rememberToken }),
       });
     } finally {
       setUser(null);

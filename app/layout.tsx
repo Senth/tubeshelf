@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import "plyr/dist/plyr.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { RememberSession } from "@/components/RememberSession";
 
 export const metadata: Metadata = {
   // "TubeShelf" has to read the same here as on the Google OAuth consent
@@ -50,6 +51,7 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeProvider>
+          <RememberSession />
           <Suspense fallback={null}>{children}</Suspense>
         </ThemeProvider>
       </body>
