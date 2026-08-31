@@ -87,6 +87,12 @@ export async function POST(req: Request) {
       body.watchedThresholdPercent ?? current.watchedThresholdPercent
     ),
     videoRetentionDays: nextVideoRetentionDays,
+    sortOrder:
+      body.sortOrder === "newest" || body.sortOrder === "oldest"
+        ? body.sortOrder
+        : body.sortOrder === null
+        ? null
+        : current.sortOrder ?? null,
     watchLater: Array.isArray(body.watchLater)
       ? body.watchLater
       : current.watchLater ?? [],

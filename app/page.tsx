@@ -31,6 +31,8 @@ import {
   Users,
   AlertTriangle,
   ArrowUp,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   ThumbsUp,
   Cast,
 } from "lucide-react";
@@ -137,6 +139,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hideWatched, setHideWatched] = useState(false);
   const [hideMemberOnly, setHideMemberOnly] = useState(false);
+  // Per-user feed sort override. null = follow the instance default.
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | null>(null);
   const [videoRetentionDays, setVideoRetentionDays] = useState<number | null>(
     null
   );
@@ -207,6 +211,12 @@ export default function Home() {
   const refreshingRef = useRef(false);
   const initializedRef = useRef(false);
   const initializingRef = useRef(false); // Prevent concurrent initialization
+
+  // The order the feed is actually sorted in: the user's own choice when set,
+  // otherwise the instance default. Both the toolbar button and the filter
+  // effect read this.
+  const effectiveSortOrder = sortOrder ?? settings?.defaultSortOrder ?? "newest";
+
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const [userStateLoaded, setUserStateLoaded] = useState(false);
@@ -646,6 +656,11 @@ export default function Home() {
             ? data.videoRetentionDays
             : null
         );
+        setSortOrder(
+          data.sortOrder === "newest" || data.sortOrder === "oldest"
+            ? data.sortOrder
+            : null
+        );
         setCaptionsEnabled(!!data.captionsEnabled);
         setAutoLikeEnabled(!!data.autoLikeEnabled);
         setAutoLikeThresholdPercent(
@@ -697,6 +712,20 @@ export default function Home() {
       setHideMemberOnly(previousValue);
       showToast("Failed to save setting", "error");
     }
+  };
+
+  // Toggle and persist the feed sort order
+  const toggleSortOrderPersist = () => {
+    const next: "newest" | "oldest" =
+      effectiveSortOrder === "newest" ? "oldest" : "newest";
+    const previousValue = sortOrder;
+
+    setSortOrder(next);
+
+    persistUserState({ sortOrder: next }).catch(() => {
+      setSortOrder(previousValue);
+      showToast("Failed to save setting", "error");
+    });
   };
 
   const loadChannelCaptionOverrides = async () => {
@@ -1188,7 +1217,10 @@ export default function Home() {
         hideWatched,
         hideMemberOnly,
         watchedVideos,
-        settings,
+        settings:
+          settings && sortOrder
+            ? { ...settings, defaultSortOrder: sortOrder }
+            : settings,
       });
       setFilteredVideos(vids);
     }, 200);
@@ -1203,7 +1235,7 @@ export default function Home() {
     hideWatched,
     hideMemberOnly,
     watchedVideos,
-    settings?.defaultSortOrder,
+    effectiveSortOrder,
     filterListId,
     subscriptionLists,
   ]);
@@ -1229,6 +1261,7 @@ export default function Home() {
       autoLikeEnabled: boolean;
       autoLikeThresholdPercent: number;
       watchedThresholdPercent: number;
+      sortOrder: "newest" | "oldest" | null;
     }>
   ) => {
     const runPersist = async () => {
@@ -2394,6 +2427,33 @@ export default function Home() {
                           </div>
                         )}
                       </div>
+                    )}
+
+                    {/* Sort order toggle - only show on home page videos tab */}
+                    {currentPage === "home" && feedTab === "videos" && (
+                      <button
+                        onClick={toggleSortOrderPersist}
+                        title={
+                          effectiveSortOrder === "newest"
+                            ? "Sorted newest first — click for oldest first"
+                            : "Sorted oldest first — click for newest first"
+                        }
+                        aria-label={
+                          effectiveSortOrder === "newest"
+                            ? "Feed sorted newest first. Switch to oldest first."
+                            : "Feed sorted oldest first. Switch to newest first."
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary border border-border/50 rounded-lg cursor-pointer hover:border-border transition-all duration-200 focus:border-primary focus:outline-none text-foreground"
+                      >
+                        {effectiveSortOrder === "newest" ? (
+                          <ArrowDownWideNarrow className="w-4 h-4" />
+                        ) : (
+                          <ArrowUpNarrowWide className="w-4 h-4" />
+                        )}
+                        {effectiveSortOrder === "newest"
+                          ? "Newest first"
+                          : "Oldest first"}
+                      </button>
                     )}
 
                     {/* List Filter */}
