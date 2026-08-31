@@ -35,6 +35,11 @@ export interface UserState {
    * null = follow the instance default (`videoRetentionDays`).
    */
   videoRetentionDays?: number | null;
+  /**
+   * Feed sort order for this user. null/undefined = follow the instance
+   * default (`defaultSortOrder`).
+   */
+  sortOrder?: "newest" | "oldest" | null;
   watchLater?: Array<{
     id: string;
     videoId: string;
@@ -115,6 +120,10 @@ export async function readUserState(userId: string): Promise<UserState> {
     videoRetentionDays:
       typeof config.videoRetentionDays === "number"
         ? config.videoRetentionDays
+        : null,
+    sortOrder:
+      config.sortOrder === "newest" || config.sortOrder === "oldest"
+        ? config.sortOrder
         : null,
     watchLater,
   };
@@ -205,6 +214,16 @@ export async function writeUserState(state: UserState, userId: string) {
       JSON.stringify(
         typeof state.videoRetentionDays === "number"
           ? state.videoRetentionDays
+          : null
+      )
+    );
+    // null means "follow the instance default" - store it so the row round-trips.
+    configStmt.run(
+      userId,
+      "sortOrder",
+      JSON.stringify(
+        state.sortOrder === "newest" || state.sortOrder === "oldest"
+          ? state.sortOrder
           : null
       )
     );
