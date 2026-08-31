@@ -19,6 +19,11 @@ Both steps are mandatory, in this order:
    unit-level reasoning — drive the real UI, sign in, and confirm the change
    behaves as intended. Take a screenshot on failure.
 
+## Deploy
+
+After merging to main run:
+`GIT_VANILLA=1 git checkout main && git pull && ./scripts/build-local.sh && sudo systemctl restart docker-compose@tubeshelf`
+
 ## Local dev server
 
 ```bash
